@@ -7,7 +7,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const watch = process.argv.includes('--watch');
 
 const REPO_URL = 'https://github.com/moraxyc/gemini-mendeleev';
-const DOWNLOAD_URL = `${REPO_URL}/releases/latest/download/gemini-mendeleev.user.js`;
+const DOWNLOAD_URL =
+  'https://raw.githubusercontent.com/moraxyc/gemini-mendeleev/dist/gemini-mendeleev.user.js';
 
 const banner = [
   '// ==UserScript==',

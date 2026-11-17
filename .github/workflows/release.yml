@@ -6,13 +6,15 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 26
@@ -21,15 +23,57 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID || secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Push to dist branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+
+          repo_url="https://github.com/${GITHUB_REPOSITORY}.git"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+
+          if git ls-remote --exit-code --heads "$repo_url" dist >/dev/null 2>&1; then
+            git clone --branch dist --depth 1 "$repo_url" "$tmpdir"
+            find "$tmpdir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          else
+            git init -b dist "$tmpdir"
+            git -C "$tmpdir" remote add origin "$repo_url"
+          fi
+
+          cp dist/gemini-mendeleev.user.js "$tmpdir/gemini-mendeleev.user.js"
+
+          bot_name="${APP_SLUG}[bot]"
+          bot_id="$(gh api "users/${bot_name}" --jq .id)"
+          git -C "$tmpdir" config user.name "$bot_name"
+          git -C "$tmpdir" config user.email "${bot_id}+${bot_name}@users.noreply.github.com"
+
+          git -C "$tmpdir" add -A
+          if git -C "$tmpdir" diff --cached --quiet; then
+            echo "dist branch already up to date for ${RELEASE_TAG}."
+          else
+            git -C "$tmpdir" commit -m "chore(release): ${RELEASE_TAG}"
+            git -C "$tmpdir" push origin dist
+          fi
       - name: Create Draft Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release create "${{ github.ref_name }}" --draft --verify-tag --generate-notes
       - name: Upload Release Asset
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release upload "${{ github.ref_name }}" dist/gemini-mendeleev.user.js
       - name: Publish Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh release edit "${{ github.ref_name }}" --draft=false

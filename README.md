@@ -4,7 +4,8 @@ Userscript that replaces the `gemini.google.com` model picker with a periodic ta
 
 ## Install
 
-- **GitHub Releases**: Install [`gemini-mendeleev.user.js`](https://github.com/moraxyc/gemini-mendeleev/releases/latest/download/gemini-mendeleev.user.js) in Tampermonkey (auto-updates via `@updateURL` / `@downloadURL`).
+- **Direct install**: Install [`gemini-mendeleev.user.js`](https://raw.githubusercontent.com/moraxyc/gemini-mendeleev/dist/gemini-mendeleev.user.js) in Tampermonkey (auto-updates via `@updateURL` / `@downloadURL`).
+- **GitHub Releases**: Download `gemini-mendeleev.user.js` from [GitHub Releases](https://github.com/moraxyc/gemini-mendeleev/releases/latest) and drag it into Tampermonkey's dashboard.
 - **From source**: Run `npm run build` and paste `dist/gemini-mendeleev.user.js` into Tampermonkey.
 
 ## Behavior
@@ -31,4 +32,4 @@ python3 -m http.server 8765
 # open http://127.0.0.1:8765/dev/mock.html and inject dist/gemini-mendeleev.user.js
 ```
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml` to publish `dist/gemini-mendeleev.user.js` to GitHub Releases.
+Pushing a `v*` tag triggers `.github/workflows/release.yml` to push `gemini-mendeleev.user.js` to the `dist` branch and publish it to GitHub Releases.
