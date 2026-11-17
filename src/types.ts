@@ -34,8 +34,10 @@ export interface AppState {
 }
 
 export interface TableView {
+  // Atomic number -> model; unnamed models get numbers from FIRST_UNNAMED_Z.
   placed: Map<number, ModelOption>;
-  others: ModelOption[];
+  zById: Map<string, number>;
+  unnamedCount: number;
   active: ModelOption | null;
   preview: ModelOption | null;
 }

@@ -1,10 +1,23 @@
 import { at, h, sheet } from '../dom.ts';
-import { elementName, elementSymbol, place, SYMBOLS } from '../elements.ts';
+import {
+  elementName,
+  elementSymbol,
+  FIRST_UNNAMED_Z,
+  modelSymbol,
+  place,
+  SYMBOLS,
+  systematicName,
+  systematicSymbol,
+} from '../elements.ts';
 import panelCss from '../styles/panel.css';
 import type { AppState, ModelOption, TableView } from '../types.ts';
 
 const PANEL_MAX_WIDTH = 1040;
 const VIEWPORT_MARGIN = 12;
+const GROUPS = 18;
+
+const cellSymbol = (z: number, option: ModelOption | undefined): string =>
+  z < FIRST_UNNAMED_Z || !option ? elementSymbol(z) : modelSymbol(option.name);
 
 export interface PanelHandlers {
   getState: () => AppState;
@@ -51,23 +64,23 @@ export function createPanel(handlers: PanelHandlers): PanelView {
   function layout(): TableView {
     const state = handlers.getState();
     const placed = new Map<number, ModelOption>();
-    const others: ModelOption[] = [];
+    const unnamed: ModelOption[] = [];
     for (const option of state.options) {
       if (option.z && !placed.has(option.z)) placed.set(option.z, option);
-      else others.push(option);
+      else unnamed.push(option);
     }
+    unnamed.forEach((option, i) => placed.set(FIRST_UNNAMED_Z + i, option));
+    const zById = new Map(Array.from(placed, ([z, option]) => [option.id, z]));
     const active = handlers.getActiveOption();
     const preview =
-      state.options.find((o) => o.id === state.previewId && o.z) ??
-      (active?.z ? active : placed.values().next().value) ??
-      null;
-    return { placed, others, active, preview };
+      state.options.find((o) => o.id === state.previewId) ?? active ?? placed.values().next().value ?? null;
+    return { placed, zById, unnamedCount: unnamed.length, active, preview };
   }
 
-  function buildCard({ active, preview }: TableView): HTMLDivElement {
+  function buildCard({ active, preview, zById }: TableView): HTMLDivElement {
     const state = handlers.getState();
     if (!preview) {
-      const message = state.busy ? 'Reading Gemini models…' : 'No element-named models found';
+      const message = state.busy ? 'Reading Gemini models…' : 'No models found';
       return h('div', { class: 'card' }, h('div', { class: 'card-hint' }, message));
     }
     const isActive = Boolean(active && active.id === preview.id);
@@ -103,18 +116,31 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       foot = h('div', { class: 'card-hint' }, state.loaded ? 'Current model' : 'Loading thinking levels…');
     }
 
+    const z = zById.get(preview.id) ?? 0;
+    const provisional = z >= FIRST_UNNAMED_Z;
     return h(
       'div',
       { class: 'card' },
       h(
         'div',
         { class: 'card-head' },
-        h('div', { class: 'tile' }, h('span', { class: 'num' }, preview.z), elementSymbol(preview.z)),
+        h(
+          'div',
+          { class: provisional ? 'tile provisional' : 'tile' },
+          h('span', { class: 'num' }, z),
+          cellSymbol(z, preview),
+        ),
         h(
           'div',
           { class: 'card-text' },
           h('div', { class: 'card-title', title: preview.title }, preview.title),
           preview.description && h('div', { class: 'card-desc', title: preview.description }, preview.description),
+          provisional &&
+            h(
+              'div',
+              { class: 'card-desc', title: 'IUPAC placeholder name: this model has no element yet' },
+              `${systematicSymbol(z)} · ${systematicName(z)}`,
+            ),
         ),
       ),
       foot,
@@ -134,22 +160,31 @@ export function createPanel(handlers: PanelHandlers): PanelView {
   }
 
   function buildTable(view: TableView): HTMLDivElement {
-    const { placed, active, preview } = view;
+    const { placed, active, preview, unnamedCount } = view;
     cells.clear();
     const nodes: HTMLElement[] = [];
-    for (let g = 1; g <= 18; g++) nodes.push(h('div', { class: 'gnum', style: at(1, g + 1) }, g));
-    for (let p = 1; p <= 7; p++) nodes.push(h('div', { class: 'pnum', style: at(p + 1, 1) }, p));
+    const unnamedRows = Math.ceil(unnamedCount / GROUPS);
+    for (let g = 1; g <= GROUPS; g++) nodes.push(h('div', { class: 'gnum', style: at(1, g + 1) }, g));
+    for (let p = 1; p <= 7 + Math.min(unnamedRows, 1); p++) {
+      nodes.push(h('div', { class: 'pnum', style: at(p + 1, 1) }, p));
+    }
     nodes.push(
-      h('div', { class: 'series', style: at(10, 3) }, 'Ln'),
-      h('div', { class: 'series', style: at(11, 3) }, 'An'),
+      h('div', { class: 'series', style: at(-3, 3) }, 'Ln'),
+      h('div', { class: 'series', style: at(-2, 3) }, 'An'),
       h('div', { class: 'cell placeholder', style: at(7, 4), 'aria-hidden': 'true' }, '57–71'),
       h('div', { class: 'cell placeholder', style: at(8, 4), 'aria-hidden': 'true' }, '89–103'),
     );
 
-    for (let z = 1; z <= SYMBOLS.length; z++) {
+    const zs = [...SYMBOLS.keys()].map((i) => i + 1);
+    for (let i = 0; i < unnamedCount; i++) zs.push(FIRST_UNNAMED_Z + i);
+    for (const z of zs) {
       const { row, col } = place(z);
       const option = placed.get(z);
-      const content = [h('span', { class: 'num' }, z), elementSymbol(z)];
+      const content = [
+        h('span', { class: 'num' }, z),
+        cellSymbol(z, option),
+        option?.version && h('span', { class: 'mass' }, option.version),
+      ];
       if (!option) {
         nodes.push(
           h(
@@ -165,6 +200,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       const classes = [
         'cell',
         'released',
+        z >= FIRST_UNNAMED_Z && 'provisional',
         isActive && 'active',
         preview && preview.id === option.id && 'preview',
         unavailable && 'unavailable',
@@ -190,7 +226,8 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       nodes.push(cell);
     }
 
-    const versions = [...placed.values()].map((o) => o.version).filter(Boolean);
+    const named = [...placed.values()].filter((o) => o.z);
+    const versions = named.map((o) => o.version).filter(Boolean);
     const version =
       (active?.z && active.version) || versions.sort((a, b) => parseFloat(b) - parseFloat(a))[0] || '';
     nodes.push(
@@ -201,17 +238,28 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         h(
           'div',
           { class: 'legend' },
-          h('span', { class: 'on' }, `${placed.size} released`),
+          h('span', { class: 'on' }, `${named.length} released`),
+          unnamedCount > 0 && h('span', { class: 'unnamed' }, `${unnamedCount} unnamed`),
           h('span', { class: 'off' }, 'Coming soon'),
         ),
       ),
     );
     cardSlot = h('div', { class: 'card-slot' }, buildCard(view));
     nodes.push(cardSlot);
-    return h('div', { class: 'table', onpointerleave: () => setPreview(null) }, nodes);
+    return h(
+      'div',
+      {
+        class: 'table',
+        style: {
+          gridTemplateRows: `16px repeat(${7 + unnamedRows}, var(--cell-h)) 12px repeat(2, var(--cell-h))`,
+        },
+        onpointerleave: () => setPreview(null),
+      },
+      nodes,
+    );
   }
 
-  function buildFooter({ others, active }: TableView): HTMLElement {
+  function buildFooter(): HTMLElement {
     const state = handlers.getState();
     const status = state.error
       ? h('span', { class: 'status error', role: 'alert' }, state.error)
@@ -219,22 +267,6 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     return h(
       'footer',
       null,
-      others.length > 0 && h('span', { class: 'label' }, 'Other models'),
-      others.map((option) =>
-        h(
-          'button',
-          {
-            type: 'button',
-            class: active && active.id === option.id ? 'chip on' : 'chip',
-            'data-key': `model:${option.id}`,
-            'aria-pressed': String(Boolean(active && active.id === option.id)),
-            title: option.description || null,
-            disabled: option.disabled || option.locked,
-            onclick: () => handlers.onChooseModel(option),
-          },
-          option.name,
-        ),
-      ),
       status,
       h('button', { type: 'button', class: 'native', onclick: handlers.onOpenNativeMenu }, 'Gemini menu'),
     );
@@ -280,7 +312,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         h('span', { class: 'spin', 'aria-hidden': 'true' }),
       ),
       buildTable(view),
-      buildFooter(view),
+      buildFooter(),
     );
     reflectBusy(state.busy);
     if (focusKey) {

@@ -31,6 +31,30 @@ for (const [alias, z] of [
 }
 
 const ELEMENT_MODEL = /^(?:gemini\s+)?(\d+(?:\.\d+)*)\s+(\p{L}+)$/iu;
+const VERSION_PREFIX = /^(?:gemini\s+)?(\d+(?:\.\d+)*)\b\s*/iu;
+
+// Models without an element name sit in period 8 under IUPAC placeholder numbers.
+export const FIRST_UNNAMED_Z = 119;
+const GROUPS = 18;
+const ROOTS = ['nil', 'un', 'bi', 'tri', 'quad', 'pent', 'hex', 'sept', 'oct', 'enn'];
+
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function systematicName(z: number): string {
+  const roots = Array.from(String(z), (d) => ROOTS[Number(d)]).join('');
+  return capitalize(`${roots}ium`.replace('nnn', 'nn').replace('iium', 'ium'));
+}
+
+export function systematicSymbol(z: number): string {
+  return capitalize(Array.from(String(z), (d) => (ROOTS[Number(d)] ?? '').charAt(0)).join(''));
+}
+
+// "3.1 Pro" -> "Pro", "3.5 Flash-Lite" -> "FL"
+export function modelSymbol(name: string): string {
+  const words = name.replace(VERSION_PREFIX, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length > 1) return words.slice(0, 3).map((w) => w.charAt(0).toUpperCase()).join('');
+  return capitalize((words[0] ?? '').slice(0, 3).toLowerCase());
+}
 
 export function elementName(z: number): string {
   return NAMES[z - 1] ?? '';
@@ -40,10 +64,15 @@ export function elementSymbol(z: number): string {
   return SYMBOLS[z - 1] ?? '';
 }
 
-// Row 1 and column 1 are header tracks.
+// Row 1 and column 1 are header tracks. The f-block rows use negative lines because
+// period 8 grows the grid above them.
 export function place(z: number): { row: number; col: number } {
-  if (z >= 57 && z <= 71) return { row: 10, col: z - 57 + 4 };
-  if (z >= 89 && z <= 103) return { row: 11, col: z - 89 + 4 };
+  if (z >= 57 && z <= 71) return { row: -3, col: z - 57 + 4 };
+  if (z >= 89 && z <= 103) return { row: -2, col: z - 89 + 4 };
+  if (z >= FIRST_UNNAMED_Z) {
+    const i = z - FIRST_UNNAMED_Z;
+    return { row: 9 + Math.floor(i / GROUPS), col: (i % GROUPS) + 2 };
+  }
   const [period, group] =
     z === 1 ? [1, 1] : z === 2 ? [1, 18] :
     z <= 4 ? [2, z - 2] : z <= 10 ? [2, z + 8] :
@@ -58,8 +87,12 @@ export function classify(raw: RawOption): ModelOption {
   const match = ELEMENT_MODEL.exec(raw.name);
   const key = (match?.[2] ?? raw.modeId).toLowerCase();
   const z = Z_BY_NAME.get(key) ?? 0;
-  const version = match?.[1] ?? '';
-  const title = z ? ['Gemini', version, elementName(z)].filter(Boolean).join(' ') : raw.name;
+  const version = match?.[1] ?? VERSION_PREFIX.exec(raw.name)?.[1] ?? '';
+  const title = z
+    ? ['Gemini', version, elementName(z)].filter(Boolean).join(' ')
+    : /^gemini\b/i.test(raw.name)
+      ? raw.name
+      : `Gemini ${raw.name}`;
   return { ...raw, z, version, title };
 }
 

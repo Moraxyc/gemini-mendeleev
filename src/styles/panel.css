@@ -129,7 +129,6 @@ h2 {
   gap: 5px;
   min-width: 660px;
   grid-template-columns: 18px repeat(18, minmax(32px, 1fr));
-  grid-template-rows: 16px repeat(7, var(--cell-h)) 12px repeat(2, var(--cell-h));
 }
 
 .gnum,
@@ -218,6 +217,25 @@ h2 {
   opacity: .75;
 }
 
+.mass {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8.5px;
+  font-weight: 400;
+  opacity: .7;
+}
+
+.cell.provisional:not(.active) {
+  border-style: dashed;
+}
+
+.cell.provisional {
+  font-size: 14px;
+}
+
 .dot {
   position: absolute;
   top: 5px;
@@ -245,7 +263,9 @@ h2 {
 
 .legend {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  white-space: nowrap;
   font-size: 12.5px;
   color: var(--dim);
 }
@@ -256,6 +276,11 @@ h2 {
 
 .legend .on::before {
   content: '●';
+  color: var(--active-line);
+}
+
+.legend .unnamed::before {
+  content: '◌';
   color: var(--active-line);
 }
 
@@ -303,6 +328,11 @@ h2 {
   background: var(--teal);
   font-size: 20px;
   font-weight: 500;
+}
+
+.tile.provisional {
+  border-style: dashed;
+  font-size: 16px;
 }
 
 .card-text {
@@ -382,40 +412,6 @@ footer {
   border-top: 1px solid var(--line);
   font-size: 12.5px;
   color: var(--dim);
-}
-
-footer .label {
-  margin-right: 6px;
-}
-
-.chip {
-  all: unset;
-  padding: 6px 14px;
-  border: 1px solid var(--released-line);
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.chip:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
-.chip:focus-visible {
-  outline: 2px solid var(--active-line);
-  outline-offset: 2px;
-}
-
-.chip.on {
-  background: var(--active);
-  border-color: var(--active-line);
-}
-
-.chip:disabled {
-  opacity: .5;
-  cursor: not-allowed;
 }
 
 .status {
