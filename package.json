@@ -1,6 +1,6 @@
 {
   "name": "gemini-mendeleev",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Replace Gemini's model picker with a periodic table of models",
   "type": "module",
