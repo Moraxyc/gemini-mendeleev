@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Mendeleev
 // @namespace    https://github.com/moraxyc/gemini-mendeleev
-// @version      0.1.2
+// @version      0.1.3
 // @description  Replace Gemini's model picker with a periodic table of models
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -76,6 +76,23 @@
     Z_BY_NAME.set(alias, z);
   }
   var ELEMENT_MODEL = /^(?:gemini\s+)?(\d+(?:\.\d+)*)\s+(\p{L}+)$/iu;
+  var VERSION_PREFIX = /^(?:gemini\s+)?(\d+(?:\.\d+)*)\b\s*/iu;
+  var FIRST_UNNAMED_Z = 119;
+  var GROUPS = 18;
+  var ROOTS = ["nil", "un", "bi", "tri", "quad", "pent", "hex", "sept", "oct", "enn"];
+  var capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  function systematicName(z) {
+    const roots = Array.from(String(z), (d) => ROOTS[Number(d)]).join("");
+    return capitalize(`${roots}ium`.replace("nnn", "nn").replace("iium", "ium"));
+  }
+  function systematicSymbol(z) {
+    return capitalize(Array.from(String(z), (d) => (ROOTS[Number(d)] ?? "").charAt(0)).join(""));
+  }
+  function modelSymbol(name) {
+    const words = name.replace(VERSION_PREFIX, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    if (words.length > 1) return words.slice(0, 3).map((w) => w.charAt(0).toUpperCase()).join("");
+    return capitalize((words[0] ?? "").slice(0, 3).toLowerCase());
+  }
   function elementName(z) {
     return NAMES[z - 1] ?? "";
   }
@@ -83,8 +100,12 @@
     return SYMBOLS[z - 1] ?? "";
   }
   function place(z) {
-    if (z >= 57 && z <= 71) return { row: 10, col: z - 57 + 4 };
-    if (z >= 89 && z <= 103) return { row: 11, col: z - 89 + 4 };
+    if (z >= 57 && z <= 71) return { row: -3, col: z - 57 + 4 };
+    if (z >= 89 && z <= 103) return { row: -2, col: z - 89 + 4 };
+    if (z >= FIRST_UNNAMED_Z) {
+      const i = z - FIRST_UNNAMED_Z;
+      return { row: 9 + Math.floor(i / GROUPS), col: i % GROUPS + 2 };
+    }
     const [period, group] = z === 1 ? [1, 1] : z === 2 ? [1, 18] : z <= 4 ? [2, z - 2] : z <= 10 ? [2, z + 8] : z <= 12 ? [3, z - 10] : z <= 18 ? [3, z] : z <= 36 ? [4, z - 18] : z <= 54 ? [5, z - 36] : z <= 56 ? [6, z - 54] : z <= 86 ? [6, z - 68] : z <= 88 ? [7, z - 86] : [7, z - 100];
     return { row: period + 1, col: group + 1 };
   }
@@ -92,8 +113,8 @@
     const match = ELEMENT_MODEL.exec(raw.name);
     const key = (match?.[2] ?? raw.modeId).toLowerCase();
     const z = Z_BY_NAME.get(key) ?? 0;
-    const version = match?.[1] ?? "";
-    const title = z ? ["Gemini", version, elementName(z)].filter(Boolean).join(" ") : raw.name;
+    const version = match?.[1] ?? VERSION_PREFIX.exec(raw.name)?.[1] ?? "";
+    const title = z ? ["Gemini", version, elementName(z)].filter(Boolean).join(" ") : /^gemini\b/i.test(raw.name) ? raw.name : `Gemini ${raw.name}`;
     return { ...raw, z, version, title };
   }
   function elementInText(text) {
@@ -305,15 +326,17 @@
 .panel {
   --bg: #1b1c1d;
   --line: #2e3033;
-  --cell: #232427;
-  --cell-line: #313236;
+  --cell: transparent;
+  --cell-line: #2a2b2e;
+  --soon-text: #4f5357;
   --text: #e3e3e3;
   --dim: #9aa0a6;
   --faint: #5f6368;
-  --released: #2b2c30;
-  --released-line: #44464b;
-  --active: #2d4a70;
-  --active-line: #7aa2e3;
+  --released: #22324a;
+  --released-line: #4a6a9c;
+  --active: #a8c7fa;
+  --active-line: #d3e3fd;
+  --active-text: #062e6f;
   --teal: #1d3a33;
   --teal-line: #5fc4a5;
   --card: #242528;
@@ -322,9 +345,8 @@
   --seg-on-text: #c4eede;
   --error: #f28b82;
   box-sizing: border-box;
-  width: 100%;
-  max-height: calc(100vh - 24px);
   overflow: auto;
+  transform-origin: 0 0;
   padding: 22px 26px 16px;
   border: 1px solid var(--line);
   border-radius: 28px;
@@ -338,15 +360,17 @@
 .panel[data-theme="light"] {
   --bg: #f8fafd;
   --line: #dde3ea;
-  --cell: #eef1f5;
-  --cell-line: #e1e5ea;
+  --cell: transparent;
+  --cell-line: #e3e7ec;
+  --soon-text: #b8bdc2;
   --text: #1f1f1f;
   --dim: #5f6368;
   --faint: #b0b5ba;
-  --released: #ffffff;
-  --released-line: #c4c7c5;
-  --active: #d3e3fd;
-  --active-line: #0b57d0;
+  --released: #dce8fc;
+  --released-line: #8fb0e6;
+  --active: #0b57d0;
+  --active-line: #0842a0;
+  --active-text: #ffffff;
   --teal: #d9f2ea;
   --teal-line: #148a6c;
   --card: #ffffff;
@@ -360,7 +384,7 @@
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    translate: 0 6px;
   }
 }
 
@@ -421,7 +445,6 @@ h2 {
   gap: 5px;
   min-width: 660px;
   grid-template-columns: 18px repeat(18, minmax(32px, 1fr));
-  grid-template-rows: 16px repeat(7, var(--cell-h)) 12px repeat(2, var(--cell-h));
 }
 
 .gnum,
@@ -455,7 +478,7 @@ h2 {
 }
 
 .cell.soon {
-  opacity: .55;
+  color: var(--soon-text);
 }
 
 .cell.released {
@@ -476,13 +499,26 @@ h2 {
 }
 
 .cell.unavailable {
-  opacity: .6;
+  color: var(--dim);
   cursor: not-allowed;
+}
+
+.cell.unavailable:not(.locked) {
+  opacity: .6;
+}
+
+.cell.locked {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--released-line) 45%, transparent) 5px 6px
+  );
 }
 
 .cell.active {
   background: var(--active);
   border-color: var(--active-line);
+  color: var(--active-text);
 }
 
 .cell.preview {
@@ -510,14 +546,23 @@ h2 {
   opacity: .75;
 }
 
-.dot {
+.mass {
   position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8.5px;
+  font-weight: 400;
+  opacity: .7;
+}
+
+.cell.provisional:not(.active) {
+  border-style: dashed;
+}
+
+.cell.provisional {
+  font-size: 14px;
 }
 
 .hero {
@@ -537,22 +582,24 @@ h2 {
 
 .legend {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  white-space: nowrap;
   font-size: 12.5px;
   color: var(--dim);
 }
 
-.legend span::before {
-  margin-right: 6px;
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.legend .on::before {
-  content: '●';
-  color: var(--active-line);
-}
-
-.legend .off::before {
-  content: '○';
+.legend .cell.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .card-slot {
@@ -595,6 +642,11 @@ h2 {
   background: var(--teal);
   font-size: 20px;
   font-weight: 500;
+}
+
+.tile.provisional {
+  border-style: dashed;
+  font-size: 16px;
 }
 
 .card-text {
@@ -676,40 +728,6 @@ footer {
   color: var(--dim);
 }
 
-footer .label {
-  margin-right: 6px;
-}
-
-.chip {
-  all: unset;
-  padding: 6px 14px;
-  border: 1px solid var(--released-line);
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.chip:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
-.chip:focus-visible {
-  outline: 2px solid var(--active-line);
-  outline-offset: 2px;
-}
-
-.chip.on {
-  background: var(--active);
-  border-color: var(--active-line);
-}
-
-.chip:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
 .status {
   margin-left: auto;
 }
@@ -733,6 +751,17 @@ footer .label {
   // src/ui/panel.ts
   var PANEL_MAX_WIDTH = 1040;
   var VIEWPORT_MARGIN = 12;
+  var ANCHOR_GAP = 8;
+  var MIN_SCALE = 0.6;
+  var GROUPS2 = 18;
+  var TYPEAHEAD_RESET_MS = 1e3;
+  var DIRECTIONS = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1]
+  };
+  var cellSymbol = (z, option) => z < FIRST_UNNAMED_Z || !option ? elementSymbol(z) : modelSymbol(option.name);
   function isDark() {
     const body = document.body.classList;
     if (body.contains("dark-theme")) return true;
@@ -752,72 +781,93 @@ footer .label {
     });
     root.append(body);
     const cells = /* @__PURE__ */ new Map();
-    let cardSlot = null;
+    let previewSlot = null;
     function layout() {
       const state2 = handlers.getState();
       const placed = /* @__PURE__ */ new Map();
-      const others = [];
+      const unnamed = [];
       for (const option of state2.options) {
         if (option.z && !placed.has(option.z)) placed.set(option.z, option);
-        else others.push(option);
+        else unnamed.push(option);
       }
+      unnamed.forEach((option, i) => placed.set(FIRST_UNNAMED_Z + i, option));
+      const zById = new Map(Array.from(placed, ([z, option]) => [option.id, z]));
       const active = handlers.getActiveOption();
-      const preview = state2.options.find((o) => o.id === state2.previewId && o.z) ?? (active?.z ? active : placed.values().next().value) ?? null;
-      return { placed, others, active, preview };
+      const preview = state2.options.find((o) => o.id === state2.previewId) ?? active ?? placed.values().next().value ?? null;
+      return { placed, zById, unnamedCount: unnamed.length, active, preview };
     }
-    function buildCard({ active, preview }) {
+    function buildCard({ active, preview, zById }) {
       const state2 = handlers.getState();
       if (!preview) {
-        const message = state2.busy ? "Reading Gemini models…" : "No element-named models found";
+        const message = state2.busy ? "Reading Gemini models…" : "No models found";
         return h("div", { class: "card" }, h("div", { class: "card-hint" }, message));
       }
-      const isActive = Boolean(active && active.id === preview.id);
-      let foot;
-      if (preview.locked) foot = h("div", { class: "card-hint" }, "Requires an upgrade");
-      else if (preview.disabled) foot = h("div", { class: "card-hint" }, "Not available right now");
-      else if (!isActive) foot = h("div", { class: "card-hint" }, "Click the element to switch");
-      else if (state2.thinking) {
-        foot = [
-          h("div", { class: "card-label", id: "gm-thinking" }, "Thinking level"),
-          h(
-            "div",
-            { class: "seg", role: "radiogroup", "aria-labelledby": "gm-thinking" },
-            state2.thinking.map(
-              (level) => h(
-                "button",
-                {
-                  type: "button",
-                  role: "radio",
-                  class: level.selected ? "on" : null,
-                  "aria-checked": String(level.selected),
-                  "data-key": `level:${level.label}`,
-                  title: level.description || null,
-                  disabled: level.disabled,
-                  onclick: () => handlers.onChooseLevel(level.label)
-                },
-                level.label
-              )
-            )
-          )
-        ];
-      } else {
-        foot = h("div", { class: "card-hint" }, state2.loaded ? "Current model" : "Loading thinking levels…");
+      previewSlot = h("div", { class: "card-preview" }, buildPreview(active, preview, zById));
+      return h("div", { class: "card" }, previewSlot, buildThinking(active, preview));
+    }
+    function buildThinking(active, preview) {
+      const state2 = handlers.getState();
+      if (!active) return null;
+      if (!state2.thinking) {
+        return state2.loaded ? null : h("div", { class: "card-hint" }, "Loading thinking levels…");
       }
-      return h(
-        "div",
-        { class: "card" },
+      return [
+        h("div", { class: "card-label", id: "gm-thinking" }, thinkingLabel(active, preview)),
         h(
           "div",
-          { class: "card-head" },
-          h("div", { class: "tile" }, h("span", { class: "num" }, preview.z), elementSymbol(preview.z)),
-          h(
-            "div",
-            { class: "card-text" },
-            h("div", { class: "card-title", title: preview.title }, preview.title),
-            preview.description && h("div", { class: "card-desc", title: preview.description }, preview.description)
+          { class: "seg", role: "radiogroup", "aria-labelledby": "gm-thinking" },
+          state2.thinking.map(
+            (level) => h(
+              "button",
+              {
+                type: "button",
+                role: "radio",
+                class: level.selected ? "on" : null,
+                "aria-checked": String(level.selected),
+                "data-key": `level:${level.label}`,
+                title: level.description || null,
+                disabled: level.disabled,
+                onclick: () => handlers.onChooseLevel(level.label)
+              },
+              level.label
+            )
           )
+        )
+      ];
+    }
+    function thinkingLabel(active, preview) {
+      if (!preview || active.id === preview.id) return "Thinking level";
+      return `Thinking level · ${active.z ? elementName(active.z) : active.name}`;
+    }
+    function buildPreview(active, preview, zById) {
+      const isActive = Boolean(active && active.id === preview.id);
+      let hint = "";
+      if (preview.locked) hint = "Requires an upgrade";
+      else if (preview.disabled) hint = "Not available right now";
+      else if (!isActive) hint = "Click to switch";
+      const z = zById.get(preview.id) ?? 0;
+      const provisional = z >= FIRST_UNNAMED_Z;
+      return h(
+        "div",
+        { class: "card-head" },
+        h(
+          "div",
+          { class: provisional ? "tile provisional" : "tile" },
+          h("span", { class: "num" }, z),
+          cellSymbol(z, preview)
         ),
-        foot
+        h(
+          "div",
+          { class: "card-text" },
+          h("div", { class: "card-title", title: preview.title }, preview.title),
+          preview.description && h("div", { class: "card-desc", title: preview.description }, preview.description),
+          provisional && h(
+            "div",
+            { class: "card-desc", title: "IUPAC placeholder name: this model has no element yet" },
+            `${systematicSymbol(z)} · ${systematicName(z)}`
+          ),
+          hint && h("div", { class: "card-hint" }, hint)
+        )
       );
     }
     function setPreview(id) {
@@ -825,27 +875,39 @@ footer .label {
       if (state2.previewId === id) return;
       handlers.onPreviewChange(id);
       const view = layout();
-      for (const [optionId, cell] of cells) {
-        cell.classList.toggle("preview", Boolean(view.preview && view.preview.id === optionId));
+      for (const [optionId, { el }] of cells) {
+        el.classList.toggle("preview", Boolean(view.preview && view.preview.id === optionId));
       }
-      if (cardSlot) cardSlot.replaceChildren(buildCard(view));
+      if (view.preview) previewSlot?.replaceChildren(buildPreview(view.active, view.preview, view.zById));
+      const label = root.getElementById("gm-thinking");
+      if (label && view.active) label.textContent = thinkingLabel(view.active, view.preview);
     }
     function buildTable(view) {
-      const { placed, active, preview } = view;
+      const { placed, active, preview, unnamedCount } = view;
       cells.clear();
       const nodes = [];
-      for (let g = 1; g <= 18; g++) nodes.push(h("div", { class: "gnum", style: at(1, g + 1) }, g));
-      for (let p = 1; p <= 7; p++) nodes.push(h("div", { class: "pnum", style: at(p + 1, 1) }, p));
+      const unnamedRows = Math.ceil(unnamedCount / GROUPS2);
+      const rowCount = 11 + unnamedRows;
+      for (let g = 1; g <= GROUPS2; g++) nodes.push(h("div", { class: "gnum", style: at(1, g + 1) }, g));
+      for (let p = 1; p <= 7 + Math.min(unnamedRows, 1); p++) {
+        nodes.push(h("div", { class: "pnum", style: at(p + 1, 1) }, p));
+      }
       nodes.push(
-        h("div", { class: "series", style: at(10, 3) }, "Ln"),
-        h("div", { class: "series", style: at(11, 3) }, "An"),
+        h("div", { class: "series", style: at(-3, 3) }, "Ln"),
+        h("div", { class: "series", style: at(-2, 3) }, "An"),
         h("div", { class: "cell placeholder", style: at(7, 4), "aria-hidden": "true" }, "57–71"),
         h("div", { class: "cell placeholder", style: at(8, 4), "aria-hidden": "true" }, "89–103")
       );
-      for (let z = 1; z <= SYMBOLS.length; z++) {
+      const zs = [...SYMBOLS.keys()].map((i) => i + 1);
+      for (let i = 0; i < unnamedCount; i++) zs.push(FIRST_UNNAMED_Z + i);
+      for (const z of zs) {
         const { row, col } = place(z);
         const option = placed.get(z);
-        const content = [h("span", { class: "num" }, z), elementSymbol(z)];
+        const content = [
+          h("span", { class: "num" }, z),
+          cellSymbol(z, option),
+          option?.version && h("span", { class: "mass" }, option.version)
+        ];
         if (!option) {
           nodes.push(
             h(
@@ -861,8 +923,10 @@ footer .label {
         const classes = [
           "cell",
           "released",
+          z >= FIRST_UNNAMED_Z && "provisional",
           isActive && "active",
           preview && preview.id === option.id && "preview",
+          option.locked && "locked",
           unavailable && "unavailable"
         ];
         const cell = h(
@@ -874,18 +938,22 @@ footer .label {
             "data-key": `model:${option.id}`,
             "aria-pressed": String(isActive),
             "aria-disabled": unavailable ? "true" : null,
-            "aria-label": [option.title, option.description].filter(Boolean).join(", "),
+            "aria-label": [option.title, option.description, option.locked && "requires an upgrade"].filter(Boolean).join(", "),
             onclick: () => handlers.onChooseModel(option),
             onpointerenter: () => setPreview(option.id),
             onfocus: () => setPreview(option.id)
           },
-          content,
-          h("span", { class: "dot", "aria-hidden": "true" })
+          content
         );
-        cells.set(option.id, cell);
+        const visualRow = row < 0 ? rowCount + 2 + row : row;
+        cells.set(option.id, { el: cell, row: visualRow, col, z, symbol: cellSymbol(z, option) });
         nodes.push(cell);
       }
-      const versions = [...placed.values()].map((o) => o.version).filter(Boolean);
+      const models = [...placed.values()];
+      const named = models.filter((o) => o.z);
+      const lockedCount = models.filter((o) => o.locked).length;
+      const legendItem = (swatch, label) => h("span", null, h("i", { class: `cell swatch ${swatch}`, "aria-hidden": "true" }), label);
+      const versions = named.map((o) => o.version).filter(Boolean);
       const version = active?.z && active.version || versions.sort((a, b) => parseFloat(b) - parseFloat(a))[0] || "";
       nodes.push(
         h(
@@ -895,60 +963,133 @@ footer .label {
           h(
             "div",
             { class: "legend" },
-            h("span", { class: "on" }, `${placed.size} released`),
-            h("span", { class: "off" }, "Coming soon")
+            legendItem("released", `${named.filter((o) => !o.locked).length} released`),
+            unnamedCount > 0 && legendItem("released provisional", `${unnamedCount} unnamed`),
+            lockedCount > 0 && legendItem("released locked", `${lockedCount} upgrade`),
+            legendItem("soon", "Coming soon")
           )
         )
       );
-      cardSlot = h("div", { class: "card-slot" }, buildCard(view));
-      nodes.push(cardSlot);
-      return h("div", { class: "table", onpointerleave: () => setPreview(null) }, nodes);
+      nodes.push(h("div", { class: "card-slot" }, buildCard(view)));
+      return h(
+        "div",
+        {
+          class: "table",
+          style: {
+            gridTemplateRows: `16px repeat(${rowCount - 4}, var(--cell-h)) 12px repeat(2, var(--cell-h))`
+          },
+          onpointerleave: () => setPreview(null)
+        },
+        nodes
+      );
     }
-    function buildFooter({ others, active }) {
+    function buildFooter() {
       const state2 = handlers.getState();
       const status = state2.error ? h("span", { class: "status error", role: "alert" }, state2.error) : h("span", { class: "status" }, state2.busy && !state2.options.length ? "Reading Gemini models…" : "");
       return h(
         "footer",
         null,
-        others.length > 0 && h("span", { class: "label" }, "Other models"),
-        others.map(
-          (option) => h(
-            "button",
-            {
-              type: "button",
-              class: active && active.id === option.id ? "chip on" : "chip",
-              "data-key": `model:${option.id}`,
-              "aria-pressed": String(Boolean(active && active.id === option.id)),
-              title: option.description || null,
-              disabled: option.disabled || option.locked,
-              onclick: () => handlers.onChooseModel(option)
-            },
-            option.name
-          )
-        ),
         status,
         h("button", { type: "button", class: "native", onclick: handlers.onOpenNativeMenu }, "Gemini menu")
       );
     }
+    function activeCell() {
+      const active = handlers.getActiveOption();
+      return active && cells.get(active.id) || cells.values().next().value;
+    }
+    function cellToward(from, [dx, dy]) {
+      let best;
+      let bestScore = Infinity;
+      for (const cell of cells.values()) {
+        const along = dx ? (cell.col - from.col) * dx : (cell.row - from.row) * dy;
+        if (along <= 0) continue;
+        const across = dx ? Math.abs(cell.row - from.row) : Math.abs(cell.col - from.col);
+        const score = along + 3 * across;
+        if (score < bestScore) [best, bestScore] = [cell, score];
+      }
+      return best;
+    }
+    let typed = "";
+    let typedAt = 0;
+    function typeahead(key) {
+      const now = performance.now();
+      typed = now - typedAt < TYPEAHEAD_RESET_MS ? typed + key.toLowerCase() : key.toLowerCase();
+      typedAt = now;
+      const find = (query) => {
+        const all = [...cells.values()];
+        const keys = (c) => [c.symbol.toLowerCase(), String(c.z)];
+        return all.find((c) => keys(c).includes(query)) ?? all.find((c) => keys(c).some((k) => k.startsWith(query)));
+      };
+      const match = find(typed);
+      if (match || typed.length === 1) return match;
+      typed = key.toLowerCase();
+      return find(typed);
+    }
+    function moveInSeg(from, key) {
+      const step = key === "ArrowLeft" || key === "ArrowUp" ? -1 : key === "ArrowRight" || key === "ArrowDown" ? 1 : 0;
+      if (!step) return;
+      const buttons = Array.from(from.parentElement?.querySelectorAll("button:not(:disabled)") ?? []);
+      const i = buttons.indexOf(from);
+      return buttons[(i + step + buttons.length) % buttons.length];
+    }
+    body.addEventListener("keydown", (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const focused = root.activeElement instanceof HTMLElement ? root.activeElement : null;
+      let next;
+      if (focused?.closest(".seg")) {
+        next = moveInSeg(focused, event.key);
+      } else if (event.key in DIRECTIONS) {
+        const from = [...cells.values()].find((c) => c.el === focused);
+        next = (from ? cellToward(from, DIRECTIONS[event.key]) : activeCell())?.el;
+      } else if (/^[\p{L}\p{N}]$/u.test(event.key)) {
+        next = typeahead(event.key)?.el;
+      }
+      if (!next) return;
+      event.preventDefault();
+      event.stopPropagation();
+      next.focus({ preventScroll: true });
+    });
     function reflectBusy(busy) {
       body.toggleAttribute("data-busy", busy > 0);
       body.setAttribute("aria-busy", String(busy > 0));
+    }
+    function minPanelWidth() {
+      const table = body.querySelector(".table");
+      const style = getComputedStyle(body);
+      const chrome = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"];
+      return (table ? parseFloat(getComputedStyle(table).minWidth) || 0 : 0) + chrome.reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
     }
     function position(anchorHost) {
       if (!handlers.getState().open) return;
       const anchor = anchorHost.closest("input-area-v2, input-container, .input-area, fieldset") ?? anchorHost;
       const rect = anchor.getBoundingClientRect();
-      const width = Math.min(PANEL_MAX_WIDTH, innerWidth - 2 * VIEWPORT_MARGIN);
-      const left = Math.min(
+      const fitWidth = innerWidth - 2 * VIEWPORT_MARGIN;
+      const fitHeight = innerHeight - 2 * VIEWPORT_MARGIN;
+      const below = innerHeight - VIEWPORT_MARGIN - rect.bottom - ANCHOR_GAP;
+      const above = rect.top - ANCHOR_GAP - VIEWPORT_MARGIN;
+      const minWidth = minPanelWidth();
+      body.style.width = `${Math.max(minWidth, Math.min(PANEL_MAX_WIDTH, fitWidth))}px`;
+      body.style.maxHeight = "none";
+      const naturalHeight = body.offsetHeight;
+      const widthScale = Math.min(1, fitWidth / minWidth);
+      let scale = Math.min(widthScale, Math.max(below, above) / naturalHeight);
+      const beside = scale >= MIN_SCALE;
+      if (!beside) scale = Math.max(MIN_SCALE, Math.min(widthScale, fitHeight / naturalHeight));
+      const layoutWidth = Math.max(minWidth, Math.min(PANEL_MAX_WIDTH, fitWidth / scale));
+      body.style.width = `${layoutWidth}px`;
+      body.style.maxHeight = `${fitHeight / scale}px`;
+      body.style.transform = scale < 1 ? `scale(${scale})` : "";
+      const width = layoutWidth * scale;
+      const height = body.offsetHeight * scale;
+      host.style.width = `${width}px`;
+      host.style.height = `${height}px`;
+      host.style.left = `${Math.min(
         Math.max(rect.left + rect.width / 2 - width / 2, VIEWPORT_MARGIN),
         innerWidth - width - VIEWPORT_MARGIN
-      );
-      host.style.width = `${width}px`;
-      host.style.left = `${left}px`;
-      const height = host.offsetHeight;
+      )}px`;
       let top;
-      if (rect.bottom + 8 + height <= innerHeight - VIEWPORT_MARGIN) top = rect.bottom + 8;
-      else if (rect.top - 8 - height >= VIEWPORT_MARGIN) top = rect.top - 8 - height;
+      if (beside && below >= height) top = rect.bottom + ANCHOR_GAP;
+      else if (beside) top = rect.top - ANCHOR_GAP - height;
       else top = Math.max(VIEWPORT_MARGIN, innerHeight - VIEWPORT_MARGIN - height);
       host.style.top = `${top}px`;
     }
@@ -968,15 +1109,13 @@ footer .label {
           h("span", { class: "spin", "aria-hidden": "true" })
         ),
         buildTable(view),
-        buildFooter(view)
+        buildFooter()
       );
       reflectBusy(state2.busy);
-      if (focusKey) {
-        const again = Array.from(body.querySelectorAll("[data-key]")).find(
-          (el) => el.getAttribute("data-key") === focusKey
-        );
-        again?.focus({ preventScroll: true });
-      }
+      const again = focusKey ? Array.from(body.querySelectorAll("[data-key]")).find(
+        (el) => el.getAttribute("data-key") === focusKey
+      ) : focused === body ? activeCell()?.el : void 0;
+      again?.focus({ preventScroll: true });
       position(anchorHost);
     }
     return {
@@ -985,12 +1124,12 @@ footer .label {
       render,
       reflectBusy,
       position,
-      focus: () => body.focus({ preventScroll: true })
+      focus: () => (activeCell()?.el ?? body).focus({ preventScroll: true })
     };
   }
 
   // src/styles/trigger.css
-  var trigger_default = ':host {\n  display: inline-flex;\n  align-items: center;\n}\n\nbutton {\n  all: unset;\n  box-sizing: border-box;\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  height: 40px;\n  padding: 0 12px 0 16px;\n  border-radius: 999px;\n  cursor: pointer;\n  font-family: inherit;\n  font-size: 15px;\n  font-weight: 500;\n  color: inherit;\n  white-space: nowrap;\n  transition: background-color .15s;\n}\n\nbutton:hover {\n  background: color-mix(in srgb, currentColor 8%, transparent);\n}\n\nbutton[aria-expanded="true"] {\n  background: color-mix(in srgb, currentColor 12%, transparent);\n}\n\nbutton:focus-visible {\n  outline: 2px solid #8ab4f8;\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\n.sub {\n  font-size: 13px;\n  font-weight: 400;\n  opacity: .65;\n}\n\n.sub:empty {\n  display: none;\n}\n\n.chev {\n  width: 7px;\n  height: 7px;\n  margin-left: 4px;\n  border-right: 1.6px solid;\n  border-bottom: 1.6px solid;\n  transform: translateY(-2px) rotate(45deg);\n  transition: transform .2s;\n}\n\nbutton[aria-expanded="true"] .chev {\n  transform: translateY(2px) rotate(-135deg);\n}\n';
+  var trigger_default = ':host {\n  display: inline-flex;\n  align-items: center;\n}\n\nbutton {\n  all: unset;\n  box-sizing: border-box;\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  height: 40px;\n  padding: 0 12px 0 16px;\n  border-radius: 999px;\n  cursor: pointer;\n  font-family: inherit;\n  font-size: 15px;\n  font-weight: 500;\n  color: inherit;\n  white-space: nowrap;\n  transition: background-color .15s;\n}\n\nbutton:hover {\n  background: color-mix(in srgb, currentColor 8%, transparent);\n}\n\nbutton[aria-expanded="true"] {\n  background: color-mix(in srgb, currentColor 12%, transparent);\n}\n\nbutton:focus-visible {\n  outline: 2px solid #8ab4f8;\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  opacity: .5;\n  cursor: default;\n}\n\nbutton[data-pending] .main,\nbutton[data-pending] .sub {\n  animation: pulse 1s ease-in-out infinite alternate;\n}\n\n@keyframes pulse {\n  to {\n    opacity: .4;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  button[data-pending] .main,\n  button[data-pending] .sub {\n    animation: none;\n    opacity: .6;\n  }\n}\n\nbutton[data-error] .chev {\n  color: #f28b82;\n}\n\n.sub {\n  font-size: 13px;\n  font-weight: 400;\n  opacity: .65;\n}\n\n.sub:empty {\n  display: none;\n}\n\n.chev {\n  width: 7px;\n  height: 7px;\n  margin-left: 4px;\n  border-right: 1.6px solid;\n  border-bottom: 1.6px solid;\n  transform: translateY(-2px) rotate(45deg);\n  transition: transform .2s;\n}\n\nbutton[aria-expanded="true"] .chev {\n  transform: translateY(2px) rotate(-135deg);\n}\n';
 
   // src/ui/trigger.ts
   function createTrigger(handlers) {
@@ -1016,12 +1155,17 @@ footer .label {
     return {
       host,
       button,
-      update({ main, sub, disabled, ariaLabel, open }) {
+      update({ main, sub, disabled, ariaLabel, open, pending, error }) {
         if (mainEl.textContent !== main) mainEl.textContent = main;
         if (subEl.textContent !== sub) subEl.textContent = sub;
         button.disabled = disabled;
-        button.setAttribute("aria-label", ariaLabel);
+        button.setAttribute("aria-label", error ? `${ariaLabel}. ${error}` : ariaLabel);
         button.setAttribute("aria-expanded", String(open));
+        button.setAttribute("aria-busy", String(pending));
+        button.toggleAttribute("data-pending", pending);
+        button.toggleAttribute("data-error", Boolean(error));
+        if (error) button.title = error;
+        else button.removeAttribute("title");
       }
     };
   }
@@ -1035,7 +1179,8 @@ footer .label {
     error: "",
     open: false,
     previewId: null,
-    pendingId: null
+    pendingId: null,
+    pendingLevel: null
   };
   function activeOption() {
     if (state.pendingId) return state.options.find((o) => o.id === state.pendingId) ?? null;
@@ -1068,13 +1213,16 @@ footer .label {
       sub: secondary,
       disabled: isPickerDisabled(picker),
       ariaLabel: `Choose model, current: ${active ? active.title : primary}`,
-      open: state.open
+      open: state.open,
+      pending: Boolean(state.pendingId || state.pendingLevel),
+      error: state.error
     });
   }
+  var withLevel = (levels, label) => levels.map((l) => ({ ...l, selected: l.label === label }));
   async function snapshot() {
     const snap = await readSnapshot();
     state.options = snap.options;
-    state.thinking = snap.thinking;
+    state.thinking = state.pendingLevel && snap.thinking ? withLevel(snap.thinking, state.pendingLevel) : snap.thinking;
     state.loaded = true;
     saveCachedOptions(snap.options);
   }
@@ -1089,7 +1237,6 @@ footer .label {
       console.warn("[gemini-mendeleev]", err);
     } finally {
       state.busy--;
-      state.pendingId = null;
       panel.reflectBusy(state.busy);
       updateTrigger();
       if (state.open) panel.render(trigger.host);
@@ -1103,25 +1250,34 @@ footer .label {
     return refreshing;
   }
   function chooseModel(option) {
-    if (option.disabled || option.locked || state.busy) return;
+    if (option.disabled || option.locked) return;
+    const alreadyActive = activeOption()?.id === option.id;
+    closePanel({ restoreFocus: true });
+    if (alreadyActive) return;
     state.pendingId = option.id;
-    state.previewId = option.id;
+    state.pendingLevel = null;
     updateTrigger();
-    panel.render(trigger.host);
     return act(async () => {
-      await selectNativeModel(option);
-      await snapshot();
+      try {
+        await selectNativeModel(option);
+        await snapshot();
+      } finally {
+        if (state.pendingId === option.id) state.pendingId = null;
+      }
     });
   }
   function chooseLevel(label) {
-    if (state.busy) return;
-    if (state.thinking) {
-      state.thinking = state.thinking.map((l) => ({ ...l, selected: l.label === label }));
-    }
+    state.pendingLevel = label;
+    if (state.thinking) state.thinking = withLevel(state.thinking, label);
+    updateTrigger();
     panel.render(trigger.host);
     return act(async () => {
-      await selectNativeLevel(label);
-      await snapshot();
+      try {
+        await selectNativeLevel(label);
+        await snapshot();
+      } finally {
+        if (state.pendingLevel === label) state.pendingLevel = null;
+      }
     });
   }
   function openPanel() {
