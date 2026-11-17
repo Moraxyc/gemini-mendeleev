@@ -14,6 +14,9 @@ import type { AppState, ModelOption, TableView } from '../types.ts';
 
 const PANEL_MAX_WIDTH = 1040;
 const VIEWPORT_MARGIN = 12;
+const ANCHOR_GAP = 8;
+// Below this the cells get hard to read, so the table may cover the input box instead.
+const MIN_SCALE = 0.6;
 const GROUPS = 18;
 const TYPEAHEAD_RESET_MS = 1000;
 
@@ -152,7 +155,12 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     return h(
       'div',
       { class: 'card-head' },
-      h('div', { class: provisional ? 'tile provisional' : 'tile' }, h('span', { class: 'num' }, z), cellSymbol(z, preview)),
+      h(
+        'div',
+        { class: provisional ? 'tile provisional' : 'tile' },
+        h('span', { class: 'num' }, z),
+        cellSymbol(z, preview),
+      ),
       h(
         'div',
         { class: 'card-text' },
@@ -250,7 +258,8 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         content,
       );
       // Negative rows count grid lines from the end.
-      cells.set(option.id, { el: cell, row: row < 0 ? rowCount + 2 + row : row, col, z, symbol: cellSymbol(z, option) });
+      const visualRow = row < 0 ? rowCount + 2 + row : row;
+      cells.set(option.id, { el: cell, row: visualRow, col, z, symbol: cellSymbol(z, option) });
       nodes.push(cell);
     }
 
@@ -376,21 +385,50 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     body.setAttribute('aria-busy', String(busy > 0));
   }
 
+  function minPanelWidth(): number {
+    const table = body.querySelector('.table');
+    const style = getComputedStyle(body);
+    const chrome = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'] as const;
+    return (
+      (table ? parseFloat(getComputedStyle(table).minWidth) || 0 : 0) +
+      chrome.reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0)
+    );
+  }
+
+  // Shrinks the whole table instead of scrolling it, so it fits beside the input box when possible.
   function position(anchorHost: HTMLElement): void {
     if (!handlers.getState().open) return;
     const anchor = anchorHost.closest('input-area-v2, input-container, .input-area, fieldset') ?? anchorHost;
     const rect = anchor.getBoundingClientRect();
-    const width = Math.min(PANEL_MAX_WIDTH, innerWidth - 2 * VIEWPORT_MARGIN);
-    const left = Math.min(
+    const fitWidth = innerWidth - 2 * VIEWPORT_MARGIN;
+    const fitHeight = innerHeight - 2 * VIEWPORT_MARGIN;
+    const below = innerHeight - VIEWPORT_MARGIN - rect.bottom - ANCHOR_GAP;
+    const above = rect.top - ANCHOR_GAP - VIEWPORT_MARGIN;
+
+    const minWidth = minPanelWidth();
+    body.style.width = `${Math.max(minWidth, Math.min(PANEL_MAX_WIDTH, fitWidth))}px`;
+    body.style.maxHeight = 'none';
+    const naturalHeight = body.offsetHeight;
+    const widthScale = Math.min(1, fitWidth / minWidth);
+    let scale = Math.min(widthScale, Math.max(below, above) / naturalHeight);
+    const beside = scale >= MIN_SCALE;
+    if (!beside) scale = Math.max(MIN_SCALE, Math.min(widthScale, fitHeight / naturalHeight));
+
+    const layoutWidth = Math.max(minWidth, Math.min(PANEL_MAX_WIDTH, fitWidth / scale));
+    body.style.width = `${layoutWidth}px`;
+    body.style.maxHeight = `${fitHeight / scale}px`;
+    body.style.transform = scale < 1 ? `scale(${scale})` : '';
+    const width = layoutWidth * scale;
+    const height = body.offsetHeight * scale;
+    host.style.width = `${width}px`;
+    host.style.height = `${height}px`;
+    host.style.left = `${Math.min(
       Math.max(rect.left + rect.width / 2 - width / 2, VIEWPORT_MARGIN),
       innerWidth - width - VIEWPORT_MARGIN,
-    );
-    host.style.width = `${width}px`;
-    host.style.left = `${left}px`;
-    const height = host.offsetHeight;
+    )}px`;
     let top: number;
-    if (rect.bottom + 8 + height <= innerHeight - VIEWPORT_MARGIN) top = rect.bottom + 8;
-    else if (rect.top - 8 - height >= VIEWPORT_MARGIN) top = rect.top - 8 - height;
+    if (beside && below >= height) top = rect.bottom + ANCHOR_GAP;
+    else if (beside) top = rect.top - ANCHOR_GAP - height;
     else top = Math.max(VIEWPORT_MARGIN, innerHeight - VIEWPORT_MARGIN - height);
     host.style.top = `${top}px`;
   }
@@ -416,7 +454,9 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     reflectBusy(state.busy);
     // The panel itself holds focus when it opened before any model was known.
     const again = focusKey
-      ? Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find((el) => el.getAttribute('data-key') === focusKey)
+      ? Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find(
+          (el) => el.getAttribute('data-key') === focusKey,
+        )
       : focused === body
         ? activeCell()?.el
         : undefined;
