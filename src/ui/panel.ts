@@ -15,6 +15,23 @@ import type { AppState, ModelOption, TableView } from '../types.ts';
 const PANEL_MAX_WIDTH = 1040;
 const VIEWPORT_MARGIN = 12;
 const GROUPS = 18;
+const TYPEAHEAD_RESET_MS = 1000;
+
+// [columns, rows] per arrow key.
+const DIRECTIONS: Record<string, [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
+interface CellRef {
+  el: HTMLButtonElement;
+  row: number;
+  col: number;
+  z: number;
+  symbol: string;
+}
 
 const cellSymbol = (z: number, option: ModelOption | undefined): string =>
   z < FIRST_UNNAMED_Z || !option ? elementSymbol(z) : modelSymbol(option.name);
@@ -58,7 +75,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
   });
   root.append(body);
 
-  const cells = new Map<string, HTMLButtonElement>();
+  const cells = new Map<string, CellRef>();
   let previewSlot: HTMLDivElement | null = null;
 
   function layout(): TableView {
@@ -158,8 +175,8 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     if (state.previewId === id) return;
     handlers.onPreviewChange(id);
     const view = layout();
-    for (const [optionId, cell] of cells) {
-      cell.classList.toggle('preview', Boolean(view.preview && view.preview.id === optionId));
+    for (const [optionId, { el }] of cells) {
+      el.classList.toggle('preview', Boolean(view.preview && view.preview.id === optionId));
     }
     if (view.preview) previewSlot?.replaceChildren(buildPreview(view.active, view.preview, view.zById));
     const label = root.getElementById('gm-thinking');
@@ -171,6 +188,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     cells.clear();
     const nodes: HTMLElement[] = [];
     const unnamedRows = Math.ceil(unnamedCount / GROUPS);
+    const rowCount = 11 + unnamedRows;
     for (let g = 1; g <= GROUPS; g++) nodes.push(h('div', { class: 'gnum', style: at(1, g + 1) }, g));
     for (let p = 1; p <= 7 + Math.min(unnamedRows, 1); p++) {
       nodes.push(h('div', { class: 'pnum', style: at(p + 1, 1) }, p));
@@ -231,7 +249,8 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         },
         content,
       );
-      cells.set(option.id, cell);
+      // Negative rows count grid lines from the end.
+      cells.set(option.id, { el: cell, row: row < 0 ? rowCount + 2 + row : row, col, z, symbol: cellSymbol(z, option) });
       nodes.push(cell);
     }
 
@@ -264,7 +283,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       {
         class: 'table',
         style: {
-          gridTemplateRows: `16px repeat(${7 + unnamedRows}, var(--cell-h)) 12px repeat(2, var(--cell-h))`,
+          gridTemplateRows: `16px repeat(${rowCount - 4}, var(--cell-h)) 12px repeat(2, var(--cell-h))`,
         },
         onpointerleave: () => setPreview(null),
       },
@@ -284,6 +303,73 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       h('button', { type: 'button', class: 'native', onclick: handlers.onOpenNativeMenu }, 'Gemini menu'),
     );
   }
+
+  function activeCell(): CellRef | undefined {
+    const active = handlers.getActiveOption();
+    return (active && cells.get(active.id)) || cells.values().next().value;
+  }
+
+  // Picks the nearest cell in the arrow's direction, preferring cells in line with the origin.
+  function cellToward(from: CellRef, [dx, dy]: [number, number]): CellRef | undefined {
+    let best: CellRef | undefined;
+    let bestScore = Infinity;
+    for (const cell of cells.values()) {
+      const along = dx ? (cell.col - from.col) * dx : (cell.row - from.row) * dy;
+      if (along <= 0) continue;
+      const across = dx ? Math.abs(cell.row - from.row) : Math.abs(cell.col - from.col);
+      const score = along + 3 * across;
+      if (score < bestScore) [best, bestScore] = [cell, score];
+    }
+    return best;
+  }
+
+  let typed = '';
+  let typedAt = 0;
+
+  // Typing "ar" jumps to Ar, "18" to element 18.
+  function typeahead(key: string): CellRef | undefined {
+    const now = performance.now();
+    typed = now - typedAt < TYPEAHEAD_RESET_MS ? typed + key.toLowerCase() : key.toLowerCase();
+    typedAt = now;
+    const find = (query: string) => {
+      const all = [...cells.values()];
+      const keys = (c: CellRef) => [c.symbol.toLowerCase(), String(c.z)];
+      return (
+        all.find((c) => keys(c).includes(query)) ?? all.find((c) => keys(c).some((k) => k.startsWith(query)))
+      );
+    };
+    const match = find(typed);
+    if (match || typed.length === 1) return match;
+    typed = key.toLowerCase();
+    return find(typed);
+  }
+
+  function moveInSeg(from: HTMLElement, key: string): HTMLElement | undefined {
+    const step = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : key === 'ArrowRight' || key === 'ArrowDown' ? 1 : 0;
+    if (!step) return;
+    const buttons = Array.from(from.parentElement?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+    const i = buttons.indexOf(from as HTMLButtonElement);
+    return buttons[(i + step + buttons.length) % buttons.length];
+  }
+
+  body.addEventListener('keydown', (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const focused = root.activeElement instanceof HTMLElement ? root.activeElement : null;
+    let next: HTMLElement | undefined;
+    if (focused?.closest('.seg')) {
+      next = moveInSeg(focused, event.key);
+    } else if (event.key in DIRECTIONS) {
+      const from = [...cells.values()].find((c) => c.el === focused);
+      next = (from ? cellToward(from, DIRECTIONS[event.key]!) : activeCell())?.el;
+    } else if (/^[\p{L}\p{N}]$/u.test(event.key)) {
+      next = typeahead(event.key)?.el;
+    }
+    if (!next) return;
+    // Keep Gemini's own shortcuts from seeing keys the table consumed.
+    event.preventDefault();
+    event.stopPropagation();
+    next.focus({ preventScroll: true });
+  });
 
   function reflectBusy(busy: number): void {
     body.toggleAttribute('data-busy', busy > 0);
@@ -328,12 +414,13 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       buildFooter(),
     );
     reflectBusy(state.busy);
-    if (focusKey) {
-      const again = Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find(
-        (el) => el.getAttribute('data-key') === focusKey,
-      );
-      again?.focus({ preventScroll: true });
-    }
+    // The panel itself holds focus when it opened before any model was known.
+    const again = focusKey
+      ? Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find((el) => el.getAttribute('data-key') === focusKey)
+      : focused === body
+        ? activeCell()?.el
+        : undefined;
+    again?.focus({ preventScroll: true });
     position(anchorHost);
   }
 
@@ -343,6 +430,6 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     render,
     reflectBusy,
     position,
-    focus: () => body.focus({ preventScroll: true }),
+    focus: () => (activeCell()?.el ?? body).focus({ preventScroll: true }),
   };
 }

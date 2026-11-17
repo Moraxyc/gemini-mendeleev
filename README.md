@@ -17,6 +17,7 @@ Userscript that replaces the `gemini.google.com` model picker with a periodic ta
 - Places models without an element name (e.g. `3.1 Pro`, `3.5 Flash-Lite`) in period 8 as unnamed elements, numbered from 119 with IUPAC placeholder names (`Uue`, `Ubn`, …).
 - Shows `upsell_*` models as disabled; switches models and thinking levels by driving Gemini's native menu in the background.
 - Choosing a model closes the table; choosing a thinking level keeps it open. Clicks made while the table is still reading Gemini's menu are queued, not dropped.
+- Keyboard: the table opens with focus on the current model; arrow keys move across the table, typing a symbol (`ar`) or atomic number (`18`) jumps to that element, Enter switches, Esc closes.
 - Includes a **Gemini menu** fallback button in the footer.
 
 ## Development
