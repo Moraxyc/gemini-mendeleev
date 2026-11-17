@@ -2,6 +2,8 @@
 
 Userscript that replaces the `gemini.google.com` model picker with a periodic table of models.
 
+<img width="1051" height="652" alt="Showcase" src="https://github.com/user-attachments/assets/bb269da4-2431-490a-b63b-e54e9dacf24f" />
+
 ## Install
 
 - **Direct install**: Install [`gemini-mendeleev.user.js`](https://raw.githubusercontent.com/moraxyc/gemini-mendeleev/dist/gemini-mendeleev.user.js) in Tampermonkey (auto-updates via `@updateURL` / `@downloadURL`).
