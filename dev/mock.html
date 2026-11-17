@@ -88,7 +88,13 @@
     btn.setAttribute('aria-expanded', 'true');
   }
 
-  btn.addEventListener('click', () => (btn.getAttribute('aria-expanded') === 'true' ? closeMenu() : openMenu()));
+  // ?delay=ms simulates Gemini's menu animation latency.
+  const delay = Number(new URLSearchParams(location.search).get('delay')) || 0;
+  btn.addEventListener('click', () => {
+    if (btn.getAttribute('aria-expanded') === 'true') closeMenu();
+    else if (delay) setTimeout(openMenu, delay);
+    else openMenu();
+  });
   render();
 </script>
 </body>

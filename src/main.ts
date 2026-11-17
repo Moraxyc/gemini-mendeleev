@@ -11,7 +11,7 @@ import {
 } from './gemini.ts';
 import { loadCachedOptions, saveCachedOptions } from './storage.ts';
 import docCss from './styles/doc.css';
-import type { AppState, ModelOption } from './types.ts';
+import type { AppState, ModelOption, ThinkingLevel } from './types.ts';
 import { createPanel } from './ui/panel.ts';
 import { createTrigger } from './ui/trigger.ts';
 
@@ -24,6 +24,7 @@ const state: AppState = {
   open: false,
   previewId: null,
   pendingId: null,
+  pendingLevel: null,
 };
 
 function activeOption(): ModelOption | null {
@@ -61,13 +62,20 @@ function updateTrigger(): void {
     disabled: isPickerDisabled(picker),
     ariaLabel: `Choose model, current: ${active ? active.title : primary}`,
     open: state.open,
+    pending: Boolean(state.pendingId || state.pendingLevel),
+    error: state.error,
   });
 }
+
+const withLevel = (levels: ThinkingLevel[], label: string): ThinkingLevel[] =>
+  levels.map((l) => ({ ...l, selected: l.label === label }));
 
 async function snapshot(): Promise<void> {
   const snap = await readSnapshot();
   state.options = snap.options;
-  state.thinking = snap.thinking;
+  // A refresh that started before a level click must not flash the old level back.
+  state.thinking =
+    state.pendingLevel && snap.thinking ? withLevel(snap.thinking, state.pendingLevel) : snap.thinking;
   state.loaded = true;
   saveCachedOptions(snap.options);
 }
@@ -83,7 +91,6 @@ async function act(work: () => Promise<void>): Promise<void> {
     console.warn('[gemini-mendeleev]', err);
   } finally {
     state.busy--;
-    state.pendingId = null;
     panel.reflectBusy(state.busy);
     updateTrigger();
     if (state.open) panel.render(trigger.host);
@@ -98,27 +105,37 @@ function refresh(): Promise<void> {
   return refreshing;
 }
 
+// Clicks made while a refresh is running are queued behind it by withNativeMenu.
 function chooseModel(option: ModelOption): Promise<void> | undefined {
-  if (option.disabled || option.locked || state.busy) return;
+  if (option.disabled || option.locked) return;
+  const alreadyActive = activeOption()?.id === option.id;
+  closePanel({ restoreFocus: true });
+  if (alreadyActive) return;
   state.pendingId = option.id;
-  state.previewId = option.id;
+  state.pendingLevel = null;
   updateTrigger();
-  panel.render(trigger.host);
   return act(async () => {
-    await selectNativeModel(option);
-    await snapshot();
+    try {
+      await selectNativeModel(option);
+      await snapshot();
+    } finally {
+      if (state.pendingId === option.id) state.pendingId = null;
+    }
   });
 }
 
 function chooseLevel(label: string): Promise<void> | undefined {
-  if (state.busy) return;
-  if (state.thinking) {
-    state.thinking = state.thinking.map((l) => ({ ...l, selected: l.label === label }));
-  }
+  state.pendingLevel = label;
+  if (state.thinking) state.thinking = withLevel(state.thinking, label);
+  updateTrigger();
   panel.render(trigger.host);
   return act(async () => {
-    await selectNativeLevel(label);
-    await snapshot();
+    try {
+      await selectNativeLevel(label);
+      await snapshot();
+    } finally {
+      if (state.pendingLevel === label) state.pendingLevel = null;
+    }
   });
 }
 

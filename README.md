@@ -15,6 +15,7 @@ Userscript that replaces the `gemini.google.com` model picker with a periodic ta
 - Displays the active element name (e.g. `Hydrogen`) and thinking level in the input bar trigger.
 - Maps element-named models (e.g. `4 Argon`) onto periodic table cells; other models (e.g. `3.1 Pro`, `3.5 Flash-Lite`) appear under **Other models**.
 - Shows `upsell_*` models as disabled; switches models and thinking levels by driving Gemini's native menu in the background.
+- Choosing a model closes the table; choosing a thinking level keeps it open. Clicks made while the table is still reading Gemini's menu are queued, not dropped.
 - Includes a **Gemini menu** fallback button in the footer.
 
 ## Development
@@ -32,6 +33,7 @@ Test locally against `dev/mock.html`:
 ```sh
 python3 -m http.server 8765
 # open http://127.0.0.1:8765/dev/mock.html and inject dist/gemini-mendeleev.user.js
+# append ?delay=300 to simulate Gemini's menu latency
 ```
 
 Pushing a `v*` tag triggers `.github/workflows/release.yml` to push `gemini-mendeleev.user.js` to the `dist` branch and publish it to GitHub Releases.

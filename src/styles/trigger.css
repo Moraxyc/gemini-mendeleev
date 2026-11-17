@@ -39,6 +39,29 @@ button:disabled {
   cursor: default;
 }
 
+button[data-pending] .main,
+button[data-pending] .sub {
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  to {
+    opacity: .4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button[data-pending] .main,
+  button[data-pending] .sub {
+    animation: none;
+    opacity: .6;
+  }
+}
+
+button[data-error] .chev {
+  color: #f28b82;
+}
+
 .sub {
   font-size: 13px;
   font-weight: 400;

@@ -15,6 +15,8 @@ export interface TriggerView {
     disabled: boolean;
     ariaLabel: string;
     open: boolean;
+    pending: boolean;
+    error: string;
   }): void;
 }
 
@@ -43,12 +45,17 @@ export function createTrigger(handlers: TriggerHandlers): TriggerView {
   return {
     host,
     button,
-    update({ main, sub, disabled, ariaLabel, open }) {
+    update({ main, sub, disabled, ariaLabel, open, pending, error }) {
       if (mainEl.textContent !== main) mainEl.textContent = main;
       if (subEl.textContent !== sub) subEl.textContent = sub;
       button.disabled = disabled;
-      button.setAttribute('aria-label', ariaLabel);
+      button.setAttribute('aria-label', error ? `${ariaLabel}. ${error}` : ariaLabel);
       button.setAttribute('aria-expanded', String(open));
+      button.setAttribute('aria-busy', String(pending));
+      button.toggleAttribute('data-pending', pending);
+      button.toggleAttribute('data-error', Boolean(error));
+      if (error) button.title = error;
+      else button.removeAttribute('title');
     },
   };
 }

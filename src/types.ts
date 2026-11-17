@@ -30,6 +30,7 @@ export interface AppState {
   open: boolean;
   previewId: string | null;
   pendingId: string | null;
+  pendingLevel: string | null;
 }
 
 export interface TableView {
