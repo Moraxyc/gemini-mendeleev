@@ -1,4 +1,4 @@
-import { at, h, sheet } from '../dom.ts';
+import { at, type Child, h, sheet } from '../dom.ts';
 import {
   elementName,
   elementSymbol,
@@ -59,7 +59,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
   root.append(body);
 
   const cells = new Map<string, HTMLButtonElement>();
-  let cardSlot: HTMLDivElement | null = null;
+  let previewSlot: HTMLDivElement | null = null;
 
   function layout(): TableView {
     const state = handlers.getState();
@@ -83,67 +83,72 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       const message = state.busy ? 'Reading Gemini models…' : 'No models found';
       return h('div', { class: 'card' }, h('div', { class: 'card-hint' }, message));
     }
-    const isActive = Boolean(active && active.id === preview.id);
-    let foot;
-    if (preview.locked) foot = h('div', { class: 'card-hint' }, 'Requires an upgrade');
-    else if (preview.disabled) foot = h('div', { class: 'card-hint' }, 'Not available right now');
-    else if (!isActive) foot = h('div', { class: 'card-hint' }, 'Click the element to switch');
-    else if (state.thinking) {
-      foot = [
-        h('div', { class: 'card-label', id: 'gm-thinking' }, 'Thinking level'),
-        h(
-          'div',
-          { class: 'seg', role: 'radiogroup', 'aria-labelledby': 'gm-thinking' },
-          state.thinking.map((level) =>
-            h(
-              'button',
-              {
-                type: 'button',
-                role: 'radio',
-                class: level.selected ? 'on' : null,
-                'aria-checked': String(level.selected),
-                'data-key': `level:${level.label}`,
-                title: level.description || null,
-                disabled: level.disabled,
-                onclick: () => handlers.onChooseLevel(level.label),
-              },
-              level.label,
-            ),
+    previewSlot = h('div', { class: 'card-preview' }, buildPreview(active, preview, zById));
+    return h('div', { class: 'card' }, previewSlot, buildThinking(active, preview));
+  }
+
+  // Thinking levels always belong to the active model, whatever is being previewed.
+  function buildThinking(active: ModelOption | null, preview: ModelOption): Child {
+    const state = handlers.getState();
+    if (!active) return null;
+    if (!state.thinking) {
+      return state.loaded ? null : h('div', { class: 'card-hint' }, 'Loading thinking levels…');
+    }
+    return [
+      h('div', { class: 'card-label', id: 'gm-thinking' }, thinkingLabel(active, preview)),
+      h(
+        'div',
+        { class: 'seg', role: 'radiogroup', 'aria-labelledby': 'gm-thinking' },
+        state.thinking.map((level) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              role: 'radio',
+              class: level.selected ? 'on' : null,
+              'aria-checked': String(level.selected),
+              'data-key': `level:${level.label}`,
+              title: level.description || null,
+              disabled: level.disabled,
+              onclick: () => handlers.onChooseLevel(level.label),
+            },
+            level.label,
           ),
         ),
-      ];
-    } else {
-      foot = h('div', { class: 'card-hint' }, state.loaded ? 'Current model' : 'Loading thinking levels…');
-    }
+      ),
+    ];
+  }
 
+  function thinkingLabel(active: ModelOption, preview: ModelOption | null): string {
+    if (!preview || active.id === preview.id) return 'Thinking level';
+    return `Thinking level · ${active.z ? elementName(active.z) : active.name}`;
+  }
+
+  function buildPreview(active: ModelOption | null, preview: ModelOption, zById: Map<string, number>): HTMLDivElement {
+    const isActive = Boolean(active && active.id === preview.id);
+    let hint = '';
+    if (preview.locked) hint = 'Requires an upgrade';
+    else if (preview.disabled) hint = 'Not available right now';
+    else if (!isActive) hint = 'Click to switch';
     const z = zById.get(preview.id) ?? 0;
     const provisional = z >= FIRST_UNNAMED_Z;
     return h(
       'div',
-      { class: 'card' },
+      { class: 'card-head' },
+      h('div', { class: provisional ? 'tile provisional' : 'tile' }, h('span', { class: 'num' }, z), cellSymbol(z, preview)),
       h(
         'div',
-        { class: 'card-head' },
-        h(
-          'div',
-          { class: provisional ? 'tile provisional' : 'tile' },
-          h('span', { class: 'num' }, z),
-          cellSymbol(z, preview),
-        ),
-        h(
-          'div',
-          { class: 'card-text' },
-          h('div', { class: 'card-title', title: preview.title }, preview.title),
-          preview.description && h('div', { class: 'card-desc', title: preview.description }, preview.description),
-          provisional &&
-            h(
-              'div',
-              { class: 'card-desc', title: 'IUPAC placeholder name: this model has no element yet' },
-              `${systematicSymbol(z)} · ${systematicName(z)}`,
-            ),
-        ),
+        { class: 'card-text' },
+        h('div', { class: 'card-title', title: preview.title }, preview.title),
+        preview.description && h('div', { class: 'card-desc', title: preview.description }, preview.description),
+        provisional &&
+          h(
+            'div',
+            { class: 'card-desc', title: 'IUPAC placeholder name: this model has no element yet' },
+            `${systematicSymbol(z)} · ${systematicName(z)}`,
+          ),
+        hint && h('div', { class: 'card-hint' }, hint),
       ),
-      foot,
     );
   }
 
@@ -156,7 +161,9 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     for (const [optionId, cell] of cells) {
       cell.classList.toggle('preview', Boolean(view.preview && view.preview.id === optionId));
     }
-    if (cardSlot) cardSlot.replaceChildren(buildCard(view));
+    if (view.preview) previewSlot?.replaceChildren(buildPreview(view.active, view.preview, view.zById));
+    const label = root.getElementById('gm-thinking');
+    if (label && view.active) label.textContent = thinkingLabel(view.active, view.preview);
   }
 
   function buildTable(view: TableView): HTMLDivElement {
@@ -244,8 +251,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         ),
       ),
     );
-    cardSlot = h('div', { class: 'card-slot' }, buildCard(view));
-    nodes.push(cardSlot);
+    nodes.push(h('div', { class: 'card-slot' }, buildCard(view)));
     return h(
       'div',
       {
