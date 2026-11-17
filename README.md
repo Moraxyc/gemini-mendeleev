@@ -2,7 +2,7 @@
 
 Userscript that replaces the `gemini.google.com` model picker with a periodic table of models.
 
-<img width="1051" height="652" alt="Showcase" src="https://github.com/user-attachments/assets/bb269da4-2431-490a-b63b-e54e9dacf24f" />
+<img width="1049" height="688" alt="Showcase" src="https://github.com/user-attachments/assets/02c4f287-8c17-4a2d-b4f8-16ba2bf585b3" />
 
 ## Install
 
