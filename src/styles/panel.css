@@ -13,15 +13,17 @@
 .panel {
   --bg: #1b1c1d;
   --line: #2e3033;
-  --cell: #232427;
-  --cell-line: #313236;
+  --cell: transparent;
+  --cell-line: #2a2b2e;
+  --soon-text: #4f5357;
   --text: #e3e3e3;
   --dim: #9aa0a6;
   --faint: #5f6368;
-  --released: #2b2c30;
-  --released-line: #44464b;
-  --active: #2d4a70;
-  --active-line: #7aa2e3;
+  --released: #22324a;
+  --released-line: #4a6a9c;
+  --active: #a8c7fa;
+  --active-line: #d3e3fd;
+  --active-text: #062e6f;
   --teal: #1d3a33;
   --teal-line: #5fc4a5;
   --card: #242528;
@@ -46,15 +48,17 @@
 .panel[data-theme="light"] {
   --bg: #f8fafd;
   --line: #dde3ea;
-  --cell: #eef1f5;
-  --cell-line: #e1e5ea;
+  --cell: transparent;
+  --cell-line: #e3e7ec;
+  --soon-text: #b8bdc2;
   --text: #1f1f1f;
   --dim: #5f6368;
   --faint: #b0b5ba;
-  --released: #ffffff;
-  --released-line: #c4c7c5;
-  --active: #d3e3fd;
-  --active-line: #0b57d0;
+  --released: #dce8fc;
+  --released-line: #8fb0e6;
+  --active: #0b57d0;
+  --active-line: #0842a0;
+  --active-text: #ffffff;
   --teal: #d9f2ea;
   --teal-line: #148a6c;
   --card: #ffffff;
@@ -162,7 +166,7 @@ h2 {
 }
 
 .cell.soon {
-  opacity: .55;
+  color: var(--soon-text);
 }
 
 .cell.released {
@@ -183,13 +187,26 @@ h2 {
 }
 
 .cell.unavailable {
-  opacity: .6;
+  color: var(--dim);
   cursor: not-allowed;
+}
+
+.cell.unavailable:not(.locked) {
+  opacity: .6;
+}
+
+.cell.locked {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--released-line) 45%, transparent) 5px 6px
+  );
 }
 
 .cell.active {
   background: var(--active);
   border-color: var(--active-line);
+  color: var(--active-text);
 }
 
 .cell.preview {
@@ -236,16 +253,6 @@ h2 {
   font-size: 14px;
 }
 
-.dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
 .hero {
   grid-row: 3 / 5;
   grid-column: 4 / 9;
@@ -270,22 +277,17 @@ h2 {
   color: var(--dim);
 }
 
-.legend span::before {
-  margin-right: 6px;
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.legend .on::before {
-  content: '●';
-  color: var(--active-line);
-}
-
-.legend .unnamed::before {
-  content: '◌';
-  color: var(--active-line);
-}
-
-.legend .off::before {
-  content: '○';
+.legend .cell.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .card-slot {

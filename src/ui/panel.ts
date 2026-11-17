@@ -210,6 +210,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         z >= FIRST_UNNAMED_Z && 'provisional',
         isActive && 'active',
         preview && preview.id === option.id && 'preview',
+        option.locked && 'locked',
         unavailable && 'unavailable',
       ];
       const cell = h(
@@ -221,19 +222,24 @@ export function createPanel(handlers: PanelHandlers): PanelView {
           'data-key': `model:${option.id}`,
           'aria-pressed': String(isActive),
           'aria-disabled': unavailable ? 'true' : null,
-          'aria-label': [option.title, option.description].filter(Boolean).join(', '),
+          'aria-label': [option.title, option.description, option.locked && 'requires an upgrade']
+            .filter(Boolean)
+            .join(', '),
           onclick: () => handlers.onChooseModel(option),
           onpointerenter: () => setPreview(option.id),
           onfocus: () => setPreview(option.id),
         },
         content,
-        h('span', { class: 'dot', 'aria-hidden': 'true' }),
       );
       cells.set(option.id, cell);
       nodes.push(cell);
     }
 
-    const named = [...placed.values()].filter((o) => o.z);
+    const models = [...placed.values()];
+    const named = models.filter((o) => o.z);
+    const lockedCount = models.filter((o) => o.locked).length;
+    const legendItem = (swatch: string, label: string) =>
+      h('span', null, h('i', { class: `cell swatch ${swatch}`, 'aria-hidden': 'true' }), label);
     const versions = named.map((o) => o.version).filter(Boolean);
     const version =
       (active?.z && active.version) || versions.sort((a, b) => parseFloat(b) - parseFloat(a))[0] || '';
@@ -245,9 +251,10 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         h(
           'div',
           { class: 'legend' },
-          h('span', { class: 'on' }, `${named.length} released`),
-          unnamedCount > 0 && h('span', { class: 'unnamed' }, `${unnamedCount} unnamed`),
-          h('span', { class: 'off' }, 'Coming soon'),
+          legendItem('released', `${named.filter((o) => !o.locked).length} released`),
+          unnamedCount > 0 && legendItem('released provisional', `${unnamedCount} unnamed`),
+          lockedCount > 0 && legendItem('released locked', `${lockedCount} upgrade`),
+          legendItem('soon', 'Coming soon'),
         ),
       ),
     );
