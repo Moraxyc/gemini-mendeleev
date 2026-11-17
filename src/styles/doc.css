@@ -1,0 +1,19 @@
+[data-gm-hidden] {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+html[data-gm-stealth] gem-menu,
+html[data-gm-stealth] gem-popover,
+html[data-gm-stealth] .cdk-overlay-popover,
+html[data-gm-stealth] .cdk-overlay-container {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: none !important;
+}

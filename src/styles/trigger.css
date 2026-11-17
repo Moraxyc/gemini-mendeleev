@@ -1,0 +1,64 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+}
+
+button {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px 0 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: inherit;
+  white-space: nowrap;
+  transition: background-color .15s;
+}
+
+button:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+button[aria-expanded="true"] {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+button:focus-visible {
+  outline: 2px solid #8ab4f8;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.sub {
+  font-size: 13px;
+  font-weight: 400;
+  opacity: .65;
+}
+
+.sub:empty {
+  display: none;
+}
+
+.chev {
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-right: 1.6px solid;
+  border-bottom: 1.6px solid;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform .2s;
+}
+
+button[aria-expanded="true"] .chev {
+  transform: translateY(2px) rotate(-135deg);
+}

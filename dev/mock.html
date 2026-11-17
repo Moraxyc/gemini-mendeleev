@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- Minimal replica of Gemini's mode picker DOM (captured 2026-11) for testing the userscript locally. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Gemini mock</title>
+<style>
+  body { margin: 0; min-height: 100vh; background: #131314; color: #e3e3e3; font-family: 'Google Sans', Roboto, sans-serif; }
+  body.light-theme { background: #fff; color: #1f1f1f; }
+  h1 { text-align: center; font-weight: 400; font-size: 44px; margin: 120px 0 40px; }
+  input-area-v2 { display: flex; align-items: center; gap: 12px; width: 760px; margin: 0 auto; padding: 12px 20px; border-radius: 32px; background: #1e1f20; }
+  body.light-theme input-area-v2 { background: #f0f4f9; }
+  .editor { flex: 1; outline: none; min-height: 24px; }
+  bard-mode-switcher { position: relative; }
+  .input-area-switch { background: none; border: 0; color: inherit; font: inherit; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+  gem-menu[data-test-id="gem-mode-menu"] { position: absolute; right: 0; top: 44px; width: 280px; background: #2a2b2e; border-radius: 16px; padding: 6px; display: block; z-index: 5; }
+  gem-menu-item { display: block; padding: 8px 12px; border-radius: 8px; cursor: pointer; position: relative; }
+  gem-menu-item.selected { background: #3a3b3e; }
+  .sublabel { font-size: 12px; opacity: .7; }
+  .submenu-container gem-menu { position: absolute; left: 100%; top: 0; width: 200px; background: #2a2b2e; border-radius: 16px; padding: 6px; display: block; }
+</style>
+</head>
+<body class="dark-theme">
+<h1>Where should we start?</h1>
+<input-area-v2>
+  <div class="editor" contenteditable="true" role="textbox">Ask Gemini</div>
+  <bard-mode-switcher>
+    <div role="group" class="pill-ui-logo-container">
+      <button data-test-id="bard-mode-menu-button" class="input-area-switch" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="ng-menu-2" aria-disabled="false">
+        <span class="mdc-button__label"><div data-test-id="logo-pill-label-container" class="logo-pill-label-container input-area-switch-label"><span class="picker-primary-text">Hydrogen</span> <span class="picker-secondary-text">High</span><gem-icon><mat-icon fonticon="keyboard_arrow_down" data-mat-icon-name="keyboard_arrow_down">keyboard_arrow_down</mat-icon></gem-icon></div></span>
+      </button>
+      <gem-popover></gem-popover>
+    </div>
+  </bard-mode-switcher>
+</input-area-v2>
+<script>
+  const models = [
+    { id: '8c46e95b1a07cecc', label: 'Quick answers', sub: '3.5 Flash-Lite' },
+    { id: '56fdd199312815e2', label: 'Everyday help', sub: '4 Hydrogen' },
+    { id: 'e6fa609c3fa255c0', label: 'Detailed research', sub: '3.1 Pro' },
+    { id: 'argon', label: 'Code & analysis', sub: '4 Argon' },
+    { id: 'upsell_MODE_CATEGORY_ULTRA', label: 'Most complex work', sub: '4 Carbon', lock: true },
+  ];
+  const levels = [['Low', 'Fast and efficient'], ['Medium', 'Balanced depth'], ['High', 'Extra thorough']];
+  const state = { model: '56fdd199312815e2', level: 'High' };
+  const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+  const popover = document.querySelector('gem-popover');
+  window.mockLog = [];
+
+  const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.append(...kids); return e; };
+  const icon = (name) => el('gem-icon', {}, el('mat-icon', { fonticon: name, 'data-mat-icon-name': name }, name));
+  const content = (label, sub, selected, leading) => el('gem-menu-item-content', { class: selected ? 'selected checkmark-only' : 'checkmark-only' },
+    el('div', { class: 'leading-container' }, ...(leading ? [icon(leading)] : [])),
+    el('div', { class: 'label-container' }, el('span', { class: 'label' }, ` ${label} `), ...(sub ? [el('div', { class: 'sublabel' }, sub)] : [])));
+
+  function render() {
+    const m = models.find((x) => x.id === state.model);
+    btn.querySelector('.picker-primary-text').textContent = m.sub.replace(/^[\d.]+ /, '');
+    btn.querySelector('.picker-secondary-text').textContent = state.level;
+  }
+
+  function closeMenu() { popover.replaceChildren(); btn.setAttribute('aria-expanded', 'false'); }
+
+  function openMenu() {
+    const menu = el('gem-menu', { role: 'menu', 'data-test-id': 'gem-mode-menu', id: 'ng-menu-2' });
+    for (const m of models) {
+      const selected = m.id === state.model;
+      const item = el('gem-menu-item', { role: 'menuitemradio', 'data-mode-id': m.id, 'data-test-id': `bard-mode-option-${m.id}`, 'aria-disabled': 'false', 'aria-checked': String(selected), class: selected ? 'selected' : '' },
+        content(m.label, m.sub, selected, selected ? 'check' : m.lock ? 'lock' : null));
+      item.addEventListener('click', () => { mockLog.push(`model:${m.id}`); if (m.lock) { alert('upgrade'); return; } state.model = m.id; render(); closeMenu(); });
+      menu.append(item);
+    }
+    menu.append(el('mat-divider', { role: 'separator' }));
+    const row = el('gem-menu-item', { value: 'thinking_level', role: 'menuitem', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-controls': 'ng-menu-3' },
+      content('Thinking level', null, false, null));
+    const sub = el('gem-menu', { role: 'menu', id: 'ng-menu-3' });
+    for (const [label, desc] of levels) {
+      const selected = label === state.level;
+      const item = el('gem-menu-item', { role: 'menuitemradio', jslog: '323336;track:generic_click', 'aria-checked': String(selected), class: selected ? 'selected' : '' }, content(label, desc, selected, selected ? 'check' : null));
+      item.addEventListener('click', (e) => { e.stopPropagation(); mockLog.push(`level:${label}`); state.level = label; render(); closeMenu(); });
+      sub.append(item);
+    }
+    const container = el('div', { class: 'submenu-container', style: 'display:none' }, sub);
+    row.append(container);
+    row.addEventListener('click', () => { row.setAttribute('aria-expanded', 'true'); container.style.display = ''; });
+    menu.append(row);
+    popover.replaceChildren(menu);
+    btn.setAttribute('aria-expanded', 'true');
+  }
+
+  btn.addEventListener('click', () => (btn.getAttribute('aria-expanded') === 'true' ? closeMenu() : openMenu()));
+  render();
+</script>
+</body>
+</html>
