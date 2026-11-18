@@ -1,4 +1,4 @@
-import { at, type Child, h, sheet } from '../dom.ts';
+import { at, h, sheet } from '../dom.ts';
 import {
   elementName,
   elementSymbol,
@@ -44,6 +44,7 @@ export interface PanelHandlers {
   getActiveOption: () => ModelOption | null;
   onChooseModel: (option: ModelOption) => void;
   onChooseLevel: (label: string) => void;
+  onDismissTooltip: () => void;
   onOpenNativeMenu: () => void;
   onPreviewChange: (id: string | null) => void;
 }
@@ -55,6 +56,7 @@ export interface PanelView {
   reflectBusy(busy: number): void;
   position(anchorHost: HTMLElement): void;
   focus(): void;
+  focusCell(id: string): void;
 }
 
 function isDark(): boolean {
@@ -79,7 +81,22 @@ export function createPanel(handlers: PanelHandlers): PanelView {
   root.append(body);
 
   const cells = new Map<string, CellRef>();
-  let previewSlot: HTMLDivElement | null = null;
+  const headerEl = h(
+    'header',
+    null,
+    h('span', { class: 'spark', 'aria-hidden': 'true' }, '✦'),
+    h('h2', null, 'Model periodic table'),
+    h('span', { class: 'spin', 'aria-hidden': 'true' }),
+  );
+  body.append(headerEl);
+  let tableEl: HTMLElement | null = null;
+  let footerEl: HTMLElement | null = null;
+  let tipEl: HTMLElement | null = null;
+  let tipKey = '';
+  let cardEl: HTMLButtonElement | null = null;
+  let previewSlot: HTMLSpanElement | null = null;
+  let lastTooltipId: string | null = null;
+  let lastTooltipReady = false;
 
   function layout(): TableView {
     const state = handlers.getState();
@@ -97,82 +114,146 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     return { placed, zById, unnamedCount: unnamed.length, active, preview };
   }
 
-  function buildCard({ active, preview, zById }: TableView): HTMLDivElement {
+  function cardHint(active: ModelOption | null, preview: ModelOption): string {
+    const state = handlers.getState();
+    const isActive = Boolean(active && active.id === preview.id);
+    if (preview.locked) return 'Requires an upgrade';
+    if (preview.disabled) return 'Not available right now';
+    if (!isActive) return 'Click to switch';
+    if (state.thinking?.length || !state.loaded) return 'Click to set thinking level';
+    return '';
+  }
+
+  function syncCard(active: ModelOption | null, preview: ModelOption): void {
+    if (!cardEl) return;
+    const state = handlers.getState();
+    const isActive = Boolean(active && active.id === preview.id);
+    const clickable =
+      !preview.locked && !preview.disabled && (!isActive || Boolean(state.thinking?.length) || !state.loaded);
+    cardEl.classList.toggle('clickable', clickable);
+    cardEl.disabled = !clickable;
+    const hint = cardHint(active, preview);
+    cardEl.setAttribute('aria-label', [preview.title, preview.description, hint].filter(Boolean).join(', '));
+  }
+
+  function buildCard({ active, preview, zById }: TableView): HTMLElement {
     const state = handlers.getState();
     if (!preview) {
+      cardEl = null;
+      previewSlot = null;
       const message = state.busy ? 'Reading Gemini models…' : 'No models found';
       return h('div', { class: 'card' }, h('div', { class: 'card-hint' }, message));
     }
-    previewSlot = h('div', { class: 'card-preview' }, buildPreview(active, preview, zById));
-    return h('div', { class: 'card' }, previewSlot, buildThinking(active, preview));
+    previewSlot = h('span', { class: 'card-preview' }, buildPreview(active, preview, zById));
+    cardEl = h(
+      'button',
+      {
+        type: 'button',
+        class: 'card',
+        'data-key': 'card',
+        onclick: () => {
+          const current = layout().preview;
+          if (current) handlers.onChooseModel(current);
+        },
+      },
+      previewSlot,
+    );
+    syncCard(active, preview);
+    return cardEl;
   }
 
-  // Thinking levels always belong to the active model, whatever is being previewed.
-  function buildThinking(active: ModelOption | null, preview: ModelOption): Child {
+  function buildTooltipSpec(): { id: string; key: string; children: Node[] } | null {
     const state = handlers.getState();
-    if (!active) return null;
-    if (!state.thinking) {
-      return state.loaded ? null : h('div', { class: 'card-hint' }, 'Loading thinking levels…');
+    if (!state.tooltipId) return null;
+    const option = state.options.find((o) => o.id === state.tooltipId);
+    if (!option || !cells.has(option.id)) return null;
+    const modelLabel = option.z ? elementName(option.z) : option.name;
+    const title = h('div', { class: 'tooltip-title', id: 'gm-thinking' }, `Thinking level · ${modelLabel}`);
+
+    if (state.pendingId === option.id && !state.thinking) {
+      return {
+        id: option.id,
+        key: `${option.id}:pending`,
+        children: [title, h('div', { class: 'tooltip-hint' }, 'Switching model…')],
+      };
     }
-    return [
-      h('div', { class: 'card-label', id: 'gm-thinking' }, thinkingLabel(active, preview)),
-      h(
-        'div',
-        { class: 'seg', role: 'radiogroup', 'aria-labelledby': 'gm-thinking' },
-        state.thinking.map((level) =>
-          h(
-            'button',
-            {
-              type: 'button',
-              role: 'radio',
-              class: level.selected ? 'on' : null,
-              'aria-checked': String(level.selected),
-              'data-key': `level:${level.label}`,
-              title: level.description || null,
-              disabled: level.disabled,
-              onclick: () => handlers.onChooseLevel(level.label),
-            },
-            level.label,
-          ),
+    if (!state.thinking?.length) {
+      if (state.loaded) return null;
+      return {
+        id: option.id,
+        key: `${option.id}:loading`,
+        children: [title, h('div', { class: 'tooltip-hint' }, 'Loading thinking levels…')],
+      };
+    }
+
+    const selectedDesc = state.thinking.find((l) => l.selected)?.description ?? '';
+    const descEl = state.thinking.some((l) => l.description)
+      ? h('div', { class: 'tooltip-desc' }, selectedDesc)
+      : null;
+    const setDesc = (text: string) => {
+      if (descEl) descEl.textContent = text;
+    };
+
+    const seg = h(
+      'div',
+      {
+        class: 'seg',
+        role: 'radiogroup',
+        'aria-labelledby': 'gm-thinking',
+        onpointerleave: () => setDesc(selectedDesc),
+      },
+      state.thinking.map((level) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            role: 'radio',
+            class: level.selected ? 'on' : null,
+            'aria-checked': String(level.selected),
+            'data-key': `level:${level.label}`,
+            title: level.description || null,
+            disabled: level.disabled,
+            onclick: () => handlers.onChooseLevel(level.label),
+            onpointerenter: () => setDesc(level.description || selectedDesc),
+            onfocus: () => setDesc(level.description || selectedDesc),
+          },
+          level.label,
         ),
       ),
-    ];
+    );
+    const key =
+      `${option.id}:` +
+      state.thinking
+        .map((l) => `${l.label}\0${l.description}\0${l.selected ? 1 : 0}\0${l.disabled ? 1 : 0}`)
+        .join('\n');
+    return { id: option.id, key, children: descEl ? [title, seg, descEl] : [title, seg] };
   }
 
-  function thinkingLabel(active: ModelOption, preview: ModelOption | null): string {
-    if (!preview || active.id === preview.id) return 'Thinking level';
-    return `Thinking level · ${active.z ? elementName(active.z) : active.name}`;
-  }
-
-  function buildPreview(active: ModelOption | null, preview: ModelOption, zById: Map<string, number>): HTMLDivElement {
-    const isActive = Boolean(active && active.id === preview.id);
-    let hint = '';
-    if (preview.locked) hint = 'Requires an upgrade';
-    else if (preview.disabled) hint = 'Not available right now';
-    else if (!isActive) hint = 'Click to switch';
+  function buildPreview(active: ModelOption | null, preview: ModelOption, zById: Map<string, number>): HTMLSpanElement {
+    const hint = cardHint(active, preview);
     const z = zById.get(preview.id) ?? 0;
     const provisional = z >= FIRST_UNNAMED_Z;
     return h(
-      'div',
+      'span',
       { class: 'card-head' },
       h(
-        'div',
+        'span',
         { class: provisional ? 'tile provisional' : 'tile' },
         h('span', { class: 'num' }, z),
         cellSymbol(z, preview),
       ),
       h(
-        'div',
+        'span',
         { class: 'card-text' },
-        h('div', { class: 'card-title', title: preview.title }, preview.title),
-        preview.description && h('div', { class: 'card-desc', title: preview.description }, preview.description),
+        h('span', { class: 'card-title', title: preview.title }, preview.title),
+        preview.description && h('span', { class: 'card-desc', title: preview.description }, preview.description),
         provisional &&
           h(
-            'div',
+            'span',
             { class: 'card-desc', title: 'IUPAC placeholder name: this model has no element yet' },
             `${systematicSymbol(z)} · ${systematicName(z)}`,
           ),
-        hint && h('div', { class: 'card-hint' }, hint),
+        hint && h('span', { class: 'card-hint' }, hint),
       ),
     );
   }
@@ -186,9 +267,10 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     for (const [optionId, { el }] of cells) {
       el.classList.toggle('preview', Boolean(view.preview && view.preview.id === optionId));
     }
-    if (view.preview) previewSlot?.replaceChildren(buildPreview(view.active, view.preview, view.zById));
-    const label = root.getElementById('gm-thinking');
-    if (label && view.active) label.textContent = thinkingLabel(view.active, view.preview);
+    if (view.preview) {
+      previewSlot?.replaceChildren(buildPreview(view.active, view.preview, view.zById));
+      syncCard(view.active, view.preview);
+    }
   }
 
   function buildTable(view: TableView): HTMLDivElement {
@@ -236,6 +318,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
         z >= FIRST_UNNAMED_Z && 'provisional',
         isActive && 'active',
         preview && preview.id === option.id && 'preview',
+        handlers.getState().tooltipId === option.id && 'tooltip-anchor',
         option.locked && 'locked',
         unavailable && 'unavailable',
       ];
@@ -361,6 +444,13 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     return buttons[(i + step + buttons.length) % buttons.length];
   }
 
+  body.addEventListener('pointerdown', (event) => {
+    if (!handlers.getState().tooltipId) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.tooltip') || target?.closest('.cell.released') || target?.closest('.card.clickable')) return;
+    handlers.onDismissTooltip();
+  });
+
   body.addEventListener('keydown', (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const focused = root.activeElement instanceof HTMLElement ? root.activeElement : null;
@@ -368,9 +458,11 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     if (focused?.closest('.seg')) {
       next = moveInSeg(focused, event.key);
     } else if (event.key in DIRECTIONS) {
+      if (handlers.getState().tooltipId) handlers.onDismissTooltip();
       const from = [...cells.values()].find((c) => c.el === focused);
       next = (from ? cellToward(from, DIRECTIONS[event.key]!) : activeCell())?.el;
     } else if (/^[\p{L}\p{N}]$/u.test(event.key)) {
+      if (handlers.getState().tooltipId) handlers.onDismissTooltip();
       next = typeahead(event.key)?.el;
     }
     if (!next) return;
@@ -393,6 +485,46 @@ export function createPanel(handlers: PanelHandlers): PanelView {
       (table ? parseFloat(getComputedStyle(table).minWidth) || 0 : 0) +
       chrome.reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0)
     );
+  }
+
+  function positionTooltip(): void {
+    const tip = body.querySelector<HTMLElement>('.tooltip');
+    const tooltipId = handlers.getState().tooltipId;
+    const cell = tooltipId ? cells.get(tooltipId) : undefined;
+    if (!tip || !cell) return;
+
+    const bodyRect = body.getBoundingClientRect();
+    const cellRect = cell.el.getBoundingClientRect();
+    const scale = body.offsetWidth ? bodyRect.width / body.offsetWidth : 1;
+    const cellLeft = (cellRect.left - bodyRect.left) / scale + body.scrollLeft;
+    const cellTop = (cellRect.top - bodyRect.top) / scale + body.scrollTop;
+    const cellWidth = cellRect.width / scale;
+    const cellHeight = cellRect.height / scale;
+
+    const tipWidth = tip.offsetWidth;
+    const tipHeight = tip.offsetHeight;
+    const panelW = body.clientWidth;
+    const panelH = body.clientHeight;
+    const gap = 10;
+    const margin = 12;
+
+    const spaceBelow = panelH - (cellTop - body.scrollTop + cellHeight) - margin;
+    const spaceAbove = cellTop - body.scrollTop - margin;
+    const placeAbove = spaceBelow < tipHeight + gap && spaceAbove >= spaceBelow;
+    const rawTop = placeAbove ? cellTop - gap - tipHeight : cellTop + cellHeight + gap;
+    const top = Math.max(
+      body.scrollTop + margin,
+      Math.min(rawTop, body.scrollTop + Math.max(margin, panelH - tipHeight - margin)),
+    );
+
+    const centerX = cellLeft + cellWidth / 2;
+    const left = Math.max(margin, Math.min(centerX - tipWidth / 2, panelW - tipWidth - margin));
+    const arrowX = Math.max(16, Math.min(centerX - left, tipWidth - 16));
+
+    tip.dataset.placement = placeAbove ? 'top' : 'bottom';
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    tip.style.setProperty('--arrow-x', `${arrowX}px`);
   }
 
   // Shrinks the whole table instead of scrolling it, so it fits beside the input box when possible.
@@ -431,6 +563,7 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     else if (beside) top = rect.top - ANCHOR_GAP - height;
     else top = Math.max(VIEWPORT_MARGIN, innerHeight - VIEWPORT_MARGIN - height);
     host.style.top = `${top}px`;
+    positionTooltip();
   }
 
   function render(anchorHost: HTMLElement): void {
@@ -440,26 +573,59 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     const focusKey = focused?.getAttribute('data-key');
     const view = layout();
     body.dataset.theme = isDark() ? 'dark' : 'light';
-    body.replaceChildren(
-      h(
-        'header',
-        null,
-        h('span', { class: 'spark', 'aria-hidden': 'true' }, '✦'),
-        h('h2', null, 'Model periodic table'),
-        h('span', { class: 'spin', 'aria-hidden': 'true' }),
-      ),
-      buildTable(view),
-      buildFooter(),
-    );
+
+    const nextTable = buildTable(view);
+    if (tableEl) tableEl.replaceWith(nextTable);
+    else body.append(nextTable);
+    tableEl = nextTable;
+
+    const nextFooter = buildFooter();
+    if (footerEl) footerEl.replaceWith(nextFooter);
+    else body.append(nextFooter);
+    footerEl = nextFooter;
+
+    const tip = buildTooltipSpec();
+    if (!tip) {
+      tipEl?.remove();
+      tipEl = null;
+      tipKey = '';
+    } else if (tipEl && lastTooltipId === tip.id) {
+      if (tipKey !== tip.key) {
+        tipEl.replaceChildren(...tip.children);
+        tipKey = tip.key;
+      }
+    } else {
+      tipEl?.remove();
+      tipEl = h('div', { class: 'tooltip', role: 'dialog', 'aria-labelledby': 'gm-thinking' }, tip.children);
+      tipKey = tip.key;
+      body.append(tipEl);
+    }
+
     reflectBusy(state.busy);
+
+    const tooltipReady = Boolean(tip && state.thinking?.length);
+    const shouldFocusTooltip =
+      tooltipReady &&
+      (lastTooltipId !== state.tooltipId ||
+        (!lastTooltipReady && (!focusKey || focusKey === `model:${state.tooltipId}` || focusKey === 'card')));
+    lastTooltipId = tip?.id ?? null;
+    lastTooltipReady = tooltipReady;
+
+    const tooltipFocusTarget = shouldFocusTooltip
+      ? (body.querySelector<HTMLButtonElement>('.tooltip .seg button.on:not(:disabled)') ??
+        body.querySelector<HTMLButtonElement>('.tooltip .seg button:not(:disabled)'))
+      : null;
+
     // The panel itself holds focus when it opened before any model was known.
-    const again = focusKey
-      ? Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find(
-          (el) => el.getAttribute('data-key') === focusKey,
-        )
-      : focused === body
-        ? activeCell()?.el
-        : undefined;
+    const again =
+      tooltipFocusTarget ??
+      (focusKey
+        ? Array.from(body.querySelectorAll<HTMLElement>('[data-key]')).find(
+            (el) => el.getAttribute('data-key') === focusKey,
+          )
+        : focused === body
+          ? activeCell()?.el
+          : undefined);
     again?.focus({ preventScroll: true });
     position(anchorHost);
   }
@@ -471,5 +637,6 @@ export function createPanel(handlers: PanelHandlers): PanelView {
     reflectBusy,
     position,
     focus: () => (activeCell()?.el ?? body).focus({ preventScroll: true }),
+    focusCell: (id: string) => cells.get(id)?.el.focus({ preventScroll: true }),
   };
 }

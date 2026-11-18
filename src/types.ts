@@ -29,6 +29,7 @@ export interface AppState {
   error: string;
   open: boolean;
   previewId: string | null;
+  tooltipId: string | null;
   pendingId: string | null;
   pendingLevel: string | null;
 }

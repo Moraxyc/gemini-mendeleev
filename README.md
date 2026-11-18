@@ -16,8 +16,8 @@ Userscript that replaces the `gemini.google.com` model picker with a periodic ta
 - Maps element-named models (e.g. `4 Argon`) onto periodic table cells, with the version shown as atomic mass.
 - Places models without an element name (e.g. `3.1 Pro`, `3.5 Flash-Lite`) in period 8 as unnamed elements, numbered from 119 with IUPAC placeholder names (`Uue`, `Ubn`, …).
 - Shows `upsell_*` models as disabled; switches models and thinking levels by driving Gemini's native menu in the background.
-- Choosing a model closes the table; choosing a thinking level keeps it open. Clicks made while the table is still reading Gemini's menu are queued, not dropped.
-- Keyboard: the table opens with focus on the current model; arrow keys move across the table, typing a symbol (`ar`) or atomic number (`18`) jumps to that element, Enter switches, Esc closes.
+- Clicking a model switches to it and opens its thinking-level tooltip in place (or closes immediately if it has no thinking levels); choosing a level closes the table. Clicks made while the table is still reading Gemini's menu are queued, not dropped.
+- Keyboard: the table opens with focus on the current model; arrow keys move across the table, typing a symbol (`ar`) or atomic number (`18`) jumps to that element, Enter opens the model's thinking-level tooltip (arrow keys move between levels), Esc dismisses the tooltip then closes the table.
 - Includes a **Gemini menu** fallback button in the footer.
 
 ## Development

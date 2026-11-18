@@ -23,9 +23,12 @@ const state: AppState = {
   error: '',
   open: false,
   previewId: null,
+  tooltipId: null,
   pendingId: null,
   pendingLevel: null,
 };
+
+const thinkingCache = new Map<string, ThinkingLevel[] | null>();
 
 function activeOption(): ModelOption | null {
   if (state.pendingId) return state.options.find((o) => o.id === state.pendingId) ?? null;
@@ -44,6 +47,7 @@ const panel = createPanel({
   getActiveOption: activeOption,
   onChooseModel: (option) => void chooseModel(option),
   onChooseLevel: (label) => void chooseLevel(label),
+  onDismissTooltip: () => dismissTooltip(),
   onOpenNativeMenu: openNativeMenu,
   onPreviewChange: (id) => {
     state.previewId = id;
@@ -58,7 +62,7 @@ function updateTrigger(): void {
   const main = (z ? elementName(z) : active ? active.name : primary) || 'Model';
   trigger.update({
     main,
-    sub: secondary,
+    sub: state.pendingLevel ?? secondary,
     disabled: isPickerDisabled(picker),
     ariaLabel: `Choose model, current: ${active ? active.title : primary}`,
     open: state.open,
@@ -73,9 +77,17 @@ const withLevel = (levels: ThinkingLevel[], label: string): ThinkingLevel[] =>
 async function snapshot(): Promise<void> {
   const snap = await readSnapshot();
   state.options = snap.options;
-  // A refresh that started before a level click must not flash the old level back.
-  state.thinking =
-    state.pendingLevel && snap.thinking ? withLevel(snap.thinking, state.pendingLevel) : snap.thinking;
+  const snapActive = matchActiveOption(snap.options, nativeLabel().primary);
+  if (snapActive) thinkingCache.set(snapActive.id, snap.thinking);
+  // Ignore an older refresh if a model switch is currently queued behind it.
+  if (!state.pendingId || snapActive?.id === state.pendingId) {
+    // A refresh that started before a level click must not flash the old level back.
+    state.thinking =
+      state.pendingLevel && snap.thinking ? withLevel(snap.thinking, state.pendingLevel) : snap.thinking;
+    if (state.tooltipId && !state.thinking?.length && !state.pendingId) {
+      state.tooltipId = null;
+    }
+  }
   state.loaded = true;
   saveCachedOptions(snap.options);
 }
@@ -109,15 +121,34 @@ function refresh(): Promise<void> {
 function chooseModel(option: ModelOption): Promise<void> | undefined {
   if (option.disabled || option.locked) return;
   const alreadyActive = activeOption()?.id === option.id;
-  closePanel({ restoreFocus: true });
-  if (alreadyActive) return;
+  if (alreadyActive) {
+    if (state.tooltipId === option.id) {
+      dismissTooltip({ restoreFocus: true });
+      return;
+    }
+    if (state.loaded && !state.thinking?.length && !state.pendingId) {
+      closePanel({ restoreFocus: true });
+      return;
+    }
+    state.tooltipId = option.id;
+    panel.render(trigger.host);
+    return;
+  }
+
   state.pendingId = option.id;
   state.pendingLevel = null;
+  state.tooltipId = option.id;
+  state.thinking = thinkingCache.get(option.id) ?? null;
   updateTrigger();
+  panel.render(trigger.host);
   return act(async () => {
     try {
       await selectNativeModel(option);
       await snapshot();
+      if (state.pendingId === option.id) state.pendingId = null;
+      if (state.tooltipId === option.id && state.loaded && !state.thinking?.length) {
+        closePanel({ restoreFocus: true });
+      }
     } finally {
       if (state.pendingId === option.id) state.pendingId = null;
     }
@@ -125,10 +156,19 @@ function chooseModel(option: ModelOption): Promise<void> | undefined {
 }
 
 function chooseLevel(label: string): Promise<void> | undefined {
+  const alreadySelected = Boolean(state.thinking?.find((l) => l.label === label)?.selected);
+  const active = activeOption();
+  state.tooltipId = null;
+  if (alreadySelected && !state.pendingId) {
+    closePanel({ restoreFocus: true });
+    return;
+  }
   state.pendingLevel = label;
-  if (state.thinking) state.thinking = withLevel(state.thinking, label);
-  updateTrigger();
-  panel.render(trigger.host);
+  if (state.thinking) {
+    state.thinking = withLevel(state.thinking, label);
+    if (active) thinkingCache.set(active.id, state.thinking);
+  }
+  closePanel({ restoreFocus: true });
   return act(async () => {
     try {
       await selectNativeLevel(label);
@@ -139,10 +179,19 @@ function chooseLevel(label: string): Promise<void> | undefined {
   });
 }
 
+function dismissTooltip({ restoreFocus = false } = {}): void {
+  const targetId = state.tooltipId;
+  if (!targetId) return;
+  state.tooltipId = null;
+  if (state.open) panel.render(trigger.host);
+  if (restoreFocus) panel.focusCell(targetId);
+}
+
 function openPanel(): void {
   if (state.open) return;
   state.open = true;
   state.previewId = null;
+  state.tooltipId = null;
   if (!panel.host.isConnected) document.body.append(panel.host);
   panel.host.hidden = false;
   panel.render(trigger.host);
@@ -154,6 +203,7 @@ function openPanel(): void {
 function closePanel({ restoreFocus = false } = {}): void {
   if (!state.open) return;
   state.open = false;
+  state.tooltipId = null;
   panel.host.hidden = true;
   updateTrigger();
   if (restoreFocus) trigger.button.focus({ preventScroll: true });
@@ -179,7 +229,8 @@ document.addEventListener(
   (event) => {
     if (state.open && event.key === 'Escape') {
       event.stopPropagation();
-      closePanel({ restoreFocus: true });
+      if (state.tooltipId) dismissTooltip({ restoreFocus: true });
+      else closePanel({ restoreFocus: true });
     }
   },
   true,
