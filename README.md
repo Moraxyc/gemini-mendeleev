@@ -1,5 +1,7 @@
 # Gemini Mendeleev
 
+> **Archived:** Google Gemini Web now natively supports the periodic table model picker — click the model switcher **7 times** or **long-press** it to open. This repository is archived for reference.
+
 Userscript that replaces the `gemini.google.com` model picker with a periodic table of models.
 
 <img width="1049" height="688" alt="Showcase" src="https://github.com/user-attachments/assets/02c4f287-8c17-4a2d-b4f8-16ba2bf585b3" />
